@@ -1,0 +1,45 @@
+// --- Rescue Modal ---
+function RescueModal({ currentPlayer, players, updatePlayers, card, onClose }) {
+  if (!currentPlayer || !card) return null;
+
+  const rentAmount = calculateRent(card);
+
+  const handleTrade = () => {
+    onClose();
+    alert("Open trade interface for rescue."); // You can hook in your trade logic here
+  };
+
+  const handleGiveMoney = () => {
+    const higherMoneyPlayers = players.filter(p => p.money > currentPlayer.money && p.index !== currentPlayer.index);
+    if (higherMoneyPlayers.length === 0) {
+      alert("No players with enough money to give you Zchut!");
+      return;
+    }
+    const helper = higherMoneyPlayers[0]; // For simplicity, pick the first player
+    const zchutEarned = currentPlayer.money * 2;
+    const updatedPlayers = [...players];
+    updatedPlayers[currentPlayer.index].zchutPoints += zchutEarned;
+    updatePlayers(updatedPlayers);
+    alert(`${currentPlayer.name} earned ${zchutEarned} Zchut from ${helper.name}`);
+    onClose();
+  };
+
+  const handleCallGame = () => {
+    alert("Game called! Tally points and money.");
+    onClose();
+  };
+
+  return (
+    <div style={modalStyles.overlay}>
+      <div style={modalStyles.modal}>
+        <h2>Rescue Options</h2>
+        <p>{currentPlayer.name}, you cannot pay ${rentAmount} rent for {card.name}!</p>
+        <p>Choose one of the following actions:</p>
+        <button style={{ ...modalStyles.button, backgroundColor: "purple" }} onClick={handleTrade}>Trade Properties</button>
+        <button style={{ ...modalStyles.button, backgroundColor: "orange" }} onClick={handleGiveMoney}>Give Money → Earn Zchut</button>
+        <button style={{ ...modalStyles.button, backgroundColor: "red" }} onClick={handleCallGame}>Call the Game</button>
+        <button style={modalStyles.button} onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,22 @@
+Here’s a precise description of what you’re building:
+
+Project Description:
+You are creating a React-based online board game that digitizes a custom Monopoly-style game. The game allows multiple players to log in and play from different locations, moving around a thematic board, buying properties, paying rent, and interacting with special cards and events. Players have money and Zchut points, can trade properties, and may encounter rescue mechanics if they can’t pay. The game is intended to be deployed on Vercel as a fully interactive, multiplayer-capable web application.
+
+Key features include:
+
+Digital representation of a Monopoly-style board with custom artwork.
+
+Player tokens, movement, and animated dice rolls.
+
+Property cards with dynamic rent calculation, building houses/hotels, and trading between players.
+
+Special cards and events, including “Rescue” mechanics when a player cannot pay.
+
+Player dashboards showing owned properties, money, and Zchut points.
+
+Responsive design for different screen sizes.
+
+Deployment on Vercel using React and GitHub integration.
+
+In short: it’s a multi-player online Monopoly-inspired game with Torah-themed properties and extra mechanics (Zchut, Rescue) designed to run as a web app on Vercel.

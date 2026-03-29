@@ -1,11 +1,3 @@
-  // TEMP: Test button to land on 21
-  const testLandOn21 = () => {
-    if (!gameStarted) return;
-    const player = players[currentPlayerIndex];
-    const steps = (21 - player.position + boardPositions.length) % boardPositions.length;
-    if (steps === 0) return; // Already on 21
-    movePlayerBy(steps);
-  };
 // --- Manna Foods Modal ---
 function MannaFoodsModal({ open, onClose, currentPlayer, onPay }) {
   if (!open) return null;
@@ -1933,7 +1925,7 @@ function MazalCardModal({ open, onClose, currentPlayer, setPlayers, mazalCard, o
 import Dice from "react-dice-roll";
 
 // --- Board Image path ---
-const boardImage = "/torahpoly_board.png";
+const boardImage = "/torahpoly-live/torahpoly_board.png";
 
 // --- Red Properties ---
 const schemRoyalEstates = { type: "property", name: "Schem Royal Estates", colorGroup: "red", price: 300, rent: { base: 60, house1: 150, house2: 350, house3: 700, hotel: 800 }, buildCost: { house: 200, hotel: 300 }, houses: 0, hotel: false, ownerIndex: null };
@@ -2426,23 +2418,7 @@ function App() {
           const [sellBrotherPlayerIndex, setSellBrotherPlayerIndex] = useState(null);
         // --- Jewish Idea Yeshiva event state ---
         const [yeshivaState, setYeshivaState] = useState({}); // { [playerIndex]: { count: 0, active: false } }
-      // TEMP: Test button to land on 15
-      const testLandOn15 = () => {
-        if (!gameStarted) return;
-        const player = players[currentPlayerIndex];
-        const steps = (15 - player.position + boardPositions.length) % boardPositions.length;
-        if (steps === 0) return; // Already on 15
-        movePlayerBy(steps);
-      };
-
-      // TEMP: Test button to land on 21
-      const testLandOn21 = () => {
-        if (!gameStarted) return;
-        const player = players[currentPlayerIndex];
-        const steps = (21 - player.position + boardPositions.length) % boardPositions.length;
-        if (steps === 0) return; // Already on 21
-        movePlayerBy(steps);
-      };
+      // ...existing code...
     // --- Special event for square 15 ---
     const [pendingHamanReward, setPendingHamanReward] = useState(false);
     const [hamanPlayerIndex, setHamanPlayerIndex] = useState(null);
@@ -2773,68 +2749,12 @@ function App() {
   };
 
 
-  // TEMP: Test button to land on 25
-  const testLandOn25 = () => {
-    if (!gameStarted) return;
-    const player = players[currentPlayerIndex];
-    const steps = (25 - player.position + boardPositions.length) % boardPositions.length;
-    if (steps === 0) return; // Already on 25
-    movePlayerBy(steps);
-  };
-
-  // TEMP: Test button to land on 16
-  const testLandOn16 = () => {
-    if (!gameStarted) return;
-    const player = players[currentPlayerIndex];
-    const steps = (16 - player.position + boardPositions.length) % boardPositions.length;
-    if (steps === 0) return; // Already on 16
-    movePlayerBy(steps);
-  };
-
-  // TEMP: Test button to land on 20
-  const testLandOn20 = () => {
-    if (!gameStarted) return;
-    const player = players[currentPlayerIndex];
-    const steps = (20 - player.position + boardPositions.length) % boardPositions.length;
-    if (steps === 0) return; // Already on 20
-    movePlayerBy(steps);
-  };
-
-  // TEMP: Test button to land on 10 (Exile)
-  const testLandOn10 = () => {
-    if (!gameStarted) return;
-    const player = players[currentPlayerIndex];
-    const steps = (10 - player.position + boardPositions.length) % boardPositions.length;
-    if (steps === 0) return; // Already on 10
-    movePlayerBy(steps);
-  };
+  // ...existing code...
 
   return (
     <div style={styles.container}>
       <h1>TorahPoly Monopoly Game</h1>
-      {/* TEMP TEST BUTTONS: Remove after testing */}
-      {gameStarted && (
-        <>
-          <button onClick={testLandOn15} style={{ background: '#f0c', color: '#000', fontWeight: 'bold', margin: 8, padding: '8px 16px', border: '2px solid #888', borderRadius: 6 }}>
-            TEST: Land on 15 (Haman)
-          </button>
-          <button onClick={testLandOn25} style={{ background: '#ff0', color: '#000', fontWeight: 'bold', margin: 8, padding: '8px 16px', border: '2px solid #888', borderRadius: 6 }}>
-            TEST: Land on 25
-          </button>
-          <button onClick={testLandOn16} style={{ background: '#fc0', color: '#000', fontWeight: 'bold', margin: 8, padding: '8px 16px', border: '2px solid #888', borderRadius: 6 }}>
-            TEST: Land on 16
-          </button>
-          <button onClick={testLandOn20} style={{ background: '#cfc', color: '#000', fontWeight: 'bold', margin: 8, padding: '8px 16px', border: '2px solid #888', borderRadius: 6 }}>
-            TEST: Land on 20
-          </button>
-          <button onClick={testLandOn10} style={{ background: '#f88', color: '#000', fontWeight: 'bold', margin: 8, padding: '8px 16px', border: '2px solid #888', borderRadius: 6 }}>
-            TEST: Land on 10 (Exile)
-          </button>
-          <button onClick={testLandOn21} style={{ background: '#aaf', color: '#000', fontWeight: 'bold', margin: 8, padding: '8px 16px', border: '2px solid #888', borderRadius: 6 }}>
-            TEST: Land on 21 (Sell Brother)
-          </button>
-        </>
-      )}
+      {/* ...existing code... */}
       {/* ...existing code... */}
       {!gameStarted ? (
         <>

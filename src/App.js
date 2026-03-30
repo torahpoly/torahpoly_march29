@@ -1925,7 +1925,7 @@ function MazalCardModal({ open, onClose, currentPlayer, setPlayers, mazalCard, o
 import Dice from "react-dice-roll";
 
 // --- Board Image path ---
-const boardImage = "/torahpoly-live/torahpoly_board.png";
+const boardImage = "/torahpoly_board.png";
 
 // --- Red Properties ---
 const schemRoyalEstates = { type: "property", name: "Schem Royal Estates", colorGroup: "red", price: 300, rent: { base: 60, house1: 150, house2: 350, house3: 700, hotel: 800 }, buildCost: { house: 200, hotel: 300 }, houses: 0, hotel: false, ownerIndex: null };

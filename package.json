@@ -1,6 +1,6 @@
 {
   "name": "monopoly-starter-template",
-  "homepage": "https://torahpoly.github.io/torahpoly-live",
+  "homepage": ".",
   "version": "1.0.0",
   "scripts": {
     "start": "react-scripts start",

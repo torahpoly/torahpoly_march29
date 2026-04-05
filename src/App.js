@@ -2753,7 +2753,7 @@ function App() {
 
   return (
     <div style={styles.container}>
-      <h1>TorahPoly Monopoly Game</h1>
+      <h1>TORAHPOLY</h1>
       {/* ...existing code... */}
       {/* ...existing code... */}
       {!gameStarted ? (

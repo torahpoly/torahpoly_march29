@@ -1,0 +1,265 @@
+{/* --- Helper: handle landing on a square (for both normal moves and test buttons) --- */}
+const handleLandOnSquare = (landedIndex) => {
+  // Jewish Idea Yeshiva event for squares 17 and 31
+  if (landedIndex === 17 || landedIndex === 31) {
+    const stay = window.confirm(
+      "Welcome to the Jewish Idea Yeshiva! You can leave the material world for a while and come and learn with us. You will miss next turn but get a stipend of 200 Torahpoly money and 400 Zchut. If you miss another turn your reward is doubled. And a third turn your reward is tripled. You will have to move on after the 3rd turn so we can make room for new students.\n\nDo you want to stay in Yeshiva this turn? (OK = Yes, Cancel = No)"
+    );
+    if (stay) {
+      setYeshivaState(prev => ({ ...prev, [currentPlayerIndex]: { count: 1, active: true } }));
+      setPlayers(prevPlayers => prevPlayers.map((p, idx) =>
+        idx === currentPlayerIndex
+          ? { ...p, money: (typeof p.money === 'number' ? p.money : 0) + 200, zchutPoints: (p.zchutPoints || 0) + 400, missTurn: true }
+          : p
+      ));
+      setCurrentPlayerIndex(prev => (players.length > 0 ? (prev + 1) % players.length : 0));
+    }
+    return;
+  }
+  // Square 21: Sell your brother event
+  if (landedIndex === 21) {
+    alert("How could you sell your brother for 20 shekels?? Roll the dice and pay 50 times the amount in zchut and torahpoly money to the Tzedakah fund. Maybe you will find some atonement.");
+    setPendingSellBrother(true);
+    setSellBrotherPlayerIndex(currentPlayerIndex);
+    return;
+  }
+  // Special event: Haman's gallows on square 15
+  if (landedIndex === 15) {
+    alert("Geula. Yay!! Haman is hung on his own gallows! He raised lots of money to destroy the Jewish people. The study of Torah and teshuva was worth more than all of his money and brought about his downfall.  Roll the dice to see how much money he spent trying to destroy Israel. Guess where that money is going now? Your own personal Geula - 400 times your dice roll. Good luck.");
+    setPendingHamanReward(true);
+    setHamanPlayerIndex(currentPlayerIndex);
+    return;
+  }
+  const event = boardEvents[landedIndex];
+  // Exile: Landed on square 10
+  if (landedIndex === 10) {
+    setPlayers(prevPlayers => {
+      const updatedPlayers = [...prevPlayers];
+      updatedPlayers[currentPlayerIndex].position = 30;
+      updatedPlayers[currentPlayerIndex].missTurn = true;
+      return updatedPlayers;
+    });
+    alert(`${players[currentPlayerIndex].name} has been exiled! Go back to Egypt and miss a turn. Slavery sucks.`);
+    setTimeout(() => {
+      setCurrentPlayerIndex(prev => (players.length > 0 ? (prev + 1) % players.length : 0));
+    }, 100);
+    return;
+  } else if (landedIndex === 16) {
+    if (players[currentPlayerIndex].money >= 100) {
+      setPlayers(prevPlayers => {
+        const updatedPlayers = [...prevPlayers];
+        updatedPlayers[currentPlayerIndex].money -= 100;
+        return updatedPlayers;
+      });
+      setTzedakahAmount(prev => prev + 100);
+      alert(`${players[currentPlayerIndex].name} paid $100 to Tzedakah!`);
+    } else {
+      alert(`${players[currentPlayerIndex].name} does not have enough money to pay Tzedakah!`);
+    }
+    return;
+  } else if (landedIndex === 20) {
+    if (tzedakahAmount > 0 || zchutFundAmount > 0) {
+      setPlayers(prevPlayers => {
+        const updatedPlayers = [...prevPlayers];
+        if (tzedakahAmount > 0) {
+          updatedPlayers[currentPlayerIndex].money += tzedakahAmount;
+        }
+        if (zchutFundAmount > 0) {
+          updatedPlayers[currentPlayerIndex].zchutPoints = (updatedPlayers[currentPlayerIndex].zchutPoints || 0) + zchutFundAmount;
+        }
+        return updatedPlayers;
+      });
+      let msg = `${players[currentPlayerIndex].name} collected`;
+      if (tzedakahAmount > 0) msg += ` $${tzedakahAmount}`;
+      if (zchutFundAmount > 0) msg += `${tzedakahAmount > 0 ? ' and' : ''} ${zchutFundAmount} Zchut`;
+      msg += ' from the fund!';
+      alert(msg);
+      setTzedakahAmount(0);
+      setZchutFundAmount(0);
+    } else {
+      alert("Both the Tzedakah and Zchut funds are empty.");
+    }
+    return;
+  } else if (landedIndex === 25) {
+      {pendingMannaPay && (mannaPayer != null) && (
+        <MannaFoodsPayModal
+          open={pendingMannaPay}
+          amount={mannaAmount || 0}
+          ownerName={players[mannaPayer]?.name || ""}
+          playerName={players[currentPlayerIndex]?.name || ""}
+          canAfford={players[currentPlayerIndex]?.money >= (mannaAmount || 0)}
+          onPay={async () => {
+            if (players[currentPlayerIndex].money < (mannaAmount || 0)) {
+              alert("You don't have enough money! Triggering Rescue...");
+              setRescueInfo({ player: players[currentPlayerIndex], rent: mannaAmount });
+              setShowRescueModal(true);
+              return;
+            }
+            // --- Multiplayer: Sync to Firestore ---
+            if (multiplayer.enabled && multiplayer.gameId) {
+              const { doc, updateDoc } = await import("firebase/firestore");
+              const gameRef = doc(db, "games", multiplayer.gameId);
+              let updatedPlayers = players.map((p, idx) => {
+                if (idx === currentPlayerIndex) {
+                  return { ...p, money: p.money - (mannaAmount || 0), zchutPoints: (p.zchutPoints || 0) + 200 };
+                } else if (idx === mannaPayer && mannaPayer !== currentPlayerIndex) {
+                  return { ...p, money: p.money + (mannaAmount || 0) };
+                }
+                return p;
+              });
+              await updateDoc(gameRef, {
+                'gameState.players': updatedPlayers
+              });
+              setPlayers(updatedPlayers);
+              setTzedakahAmount(prev => prev + (mannaAmount || 0));
+              setMannaAmount(mannaAmount);
+              alert(`You just paid $${mannaAmount} for your simcha mazel tov!\nYou also received 200 zchut points!`);
+              setPendingMannaPay(false);
+              return;
+            }
+            // --- Local fallback ---
+            let updatedPlayers = players.map((p, idx) => {
+              if (idx === currentPlayerIndex) {
+                return { ...p, money: p.money - (mannaAmount || 0), zchutPoints: (p.zchutPoints || 0) + 200 };
+              } else if (idx === mannaPayer && mannaPayer !== currentPlayerIndex) {
+                return { ...p, money: p.money + (mannaAmount || 0) };
+              }
+              return p;
+            });
+            setPlayers(updatedPlayers);
+            setTzedakahAmount(prev => prev + (mannaAmount || 0));
+            setMannaAmount(mannaAmount);
+            alert(`You just paid $${mannaAmount} for your simcha mazel tov!\nYou also received 200 zchut points!`);
+            setPendingMannaPay(false);
+          }}
+          onTrade={async () => {
+            const owner = players[mannaPayer];
+            const buyer = players[currentPlayerIndex];
+            if (!owner || !buyer) {
+              alert("Invalid players for trade.");
+              return;
+            }
+            const minOffer = Math.max(1, Math.floor(mannaAmount * 0.5));
+            const offerStr = prompt(`How much do you want to offer to buy the mitzvah from ${owner.name}? (Minimum $${minOffer})`);
+            const offer = parseInt(offerStr);
+            if (isNaN(offer) || offer < minOffer) {
+              alert(`Offer must be at least $${minOffer} and a valid number.`);
+              return;
+            }
+            if (buyer.money < offer) {
+              alert(`${buyer.name} does not have enough money for this offer.`);
+              return;
+            }
+            if (!window.confirm(`${owner.name}, do you accept this offer of $${offer} from ${buyer.name}?`)) {
+              alert("Offer not accepted.");
+              return;
+            }
+            // --- Multiplayer: Sync to Firestore ---
+            if (multiplayer.enabled && multiplayer.gameId) {
+              const { doc, updateDoc } = await import("firebase/firestore");
+              const gameRef = doc(db, "games", multiplayer.gameId);
+              let updatedPlayers = players.map((p, idx) => {
+                if (idx === currentPlayerIndex) {
+                  return { ...p, money: p.money - offer };
+                } else if (idx === mannaPayer) {
+                  return { ...p, money: p.money + offer };
+                }
+                return p;
+              });
+              // Update boardEvents to transfer ownership
+              const updatedBoardEvents = { ...boardEvents };
+              if (updatedBoardEvents[25] && updatedBoardEvents[25].card) {
+                updatedBoardEvents[25] = {
+                  ...updatedBoardEvents[25],
+                  card: {
+                    ...updatedBoardEvents[25].card,
+                    ownerIndex: currentPlayerIndex
+                  }
+                };
+              }
+              await updateDoc(gameRef, {
+                'gameState.players': updatedPlayers,
+                'gameState.boardEvents': updatedBoardEvents
+              });
+              setPlayers(updatedPlayers);
+              setBoardEvents(updatedBoardEvents);
+              setMannaPayer(currentPlayerIndex);
+              alert(`${buyer.name} bought the mitzvah from ${owner.name} for $${offer}!`);
+              setPendingMannaPay(false);
+              return;
+            }
+            // --- Local fallback ---
+            let updatedPlayers = players.map((p, idx) => {
+              if (idx === currentPlayerIndex) {
+                return { ...p, money: p.money - offer };
+              } else if (idx === mannaPayer) {
+                return { ...p, money: p.money + offer };
+              }
+              return p;
+            });
+            // Update boardEvents to transfer ownership
+            const updatedBoardEvents = { ...boardEvents };
+            if (updatedBoardEvents[25] && updatedBoardEvents[25].card) {
+              updatedBoardEvents[25] = {
+                ...updatedBoardEvents[25],
+                card: {
+                  ...updatedBoardEvents[25].card,
+                  ownerIndex: currentPlayerIndex
+                }
+              };
+            }
+            setPlayers(updatedPlayers);
+            setBoardEvents(updatedBoardEvents);
+            setMannaPayer(currentPlayerIndex);
+            alert(`${buyer.name} bought the mitzvah from ${owner.name} for $${offer}!`);
+            setPendingMannaPay(false);
+          }}
+          onClose={() => setPendingMannaPay(false)}
+        />
+      )}
+  } else if (pos === 20) {
+    if (tzedakahAmount > 0 || zchutFundAmount > 0) {
+      setPlayers(prevPlayers => {
+        const updatedPlayers = [...prevPlayers];
+        if (tzedakahAmount > 0) {
+          updatedPlayers[currentPlayerIndex].money += tzedakahAmount;
+        }
+        if (zchutFundAmount > 0) {
+          updatedPlayers[currentPlayerIndex].zchutPoints = (updatedPlayers[currentPlayerIndex].zchutPoints || 0) + zchutFundAmount;
+        }
+        return updatedPlayers;
+      });
+      let msg = `${players[currentPlayerIndex].name} collected`;
+      if (tzedakahAmount > 0) msg += ` $${tzedakahAmount}`;
+      if (zchutFundAmount > 0) msg += `${tzedakahAmount > 0 ? ' and' : ''} ${zchutFundAmount} Zchut`;
+      msg += ' from the fund!';
+      alert(msg);
+      setTzedakahAmount(0);
+      setZchutFundAmount(0);
+    } else {
+      alert("Both the Tzedakah and Zchut funds are empty.");
+    }
+  } else {
+    const event = boardEvents[pos];
+    if (event?.type === "property") {
+      setQaMode("property");
+      setCurrentCard(event.card);
+    }
+  }
+}, [players[currentPlayerIndex]?.position]);
+
+{/* --- TEST BUTTONS FOR SPECIAL SQUARES --- */}
+          <div style={{ margin: '16px 0' }}>
+            <button style={styles.button} onClick={() => {
+              setPlayers(prev => prev.map((p, idx) => idx === currentPlayerIndex ? { ...p, position: -1 } : p));
+              setTimeout(() => {
+                setPlayers(prev => prev.map((p, idx) => idx === currentPlayerIndex ? { ...p, position: 25 } : p));
+              }, 50);
+            }}>Go to Manna Foods (25)</button>
+            <button style={styles.button} onClick={() => {
+              setPlayers(prev => prev.map((p, idx) => idx === currentPlayerIndex ? { ...p, position: -1 } : p));
+              setTimeout(() => {
+                setPlayers(prev => prev.map((p, idx) => idx === currentPlayerIndex ? { ...p, position: 15 } : p));
+              }, 50);
+            }}>Go to Geula (15)</button>
+          </div>

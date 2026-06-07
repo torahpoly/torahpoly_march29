@@ -1,0 +1,15 @@
+// Property definitions for TorahPoly
+export const properties = [
+  { position: 0, type: "property", name: "Schem Yoseph Gardens", colorGroup: "red", price: 300, rent: { base: 60, house1: 150, house2: 350, house3: 700, hotel: 800 }, buildCost: { house: 200, hotel: 300 }, houses: 0, hotel: false, ownerIndex: null },
+  { position: 1, type: "property", name: "Schem Royal Estates", colorGroup: "red", price: 300, rent: { base: 60, house1: 150, house2: 350, house3: 700, hotel: 800 }, buildCost: { house: 200, hotel: 300 }, houses: 0, hotel: false, ownerIndex: null },
+  { position: 2, type: "property", name: "Schem Dream Resorts", colorGroup: "red", price: 300, rent: { base: 50, house1: 100, house2: 650, house3: 750, hotel: 750 }, buildCost: { house: 150, hotel: 250 }, houses: 0, hotel: false, ownerIndex: null },
+  { position: 3, type: "property", name: "Ephraim Hilltops", colorGroup: "yellow", price: 300, rent: { base: 50, house1: 300, house2: 400, house3: 500, hotel: 800 }, buildCost: { house: 50, hotel: 100 }, houses: 0, hotel: false, ownerIndex: null },
+  { position: 4, type: "property", name: "Gush Katif", colorGroup: "green", price: 350, rent: { base: 60, house1: 150, house2: 350, house3: 700, hotel: 1000 }, buildCost: { house: 150, hotel: 250 }, houses: 0, hotel: false, ownerIndex: null },
+  { position: 5, type: "property", name: "Neve Dekalim", colorGroup: "green", price: 350, rent: { base: 50, house1: 200, house2: 300, house3: 650, hotel: 800 }, buildCost: { house: 150, hotel: 200 }, houses: 0, hotel: false, ownerIndex: null },
+  { position: 6, type: "property", name: "Gan Or", colorGroup: "green", price: 350, rent: { base: 50, house1: 100, house2: 300, house3: 650, hotel: 800 }, buildCost: { house: 150, hotel: 200 }, houses: 0, hotel: false, ownerIndex: null },
+  { position: 7, type: "property", name: "Jerusalem Hills Orchard", colorGroup: "purple", price: 150, rent: { base: 10, house1: 200, house2: 250, house3: 300, hotel: 400 }, buildCost: { house: 50, hotel: 100 }, houses: 0, hotel: false, ownerIndex: null },
+  { position: 8, type: "property", name: "Jerusalem Hills", colorGroup: "purple", price: 150, rent: { base: 10, house1: 200, house2: 250, house3: 300, hotel: 400 }, buildCost: { house: 50, hotel: 100 }, houses: 0, hotel: false, ownerIndex: null },
+  { position: 9, type: "property", name: "Hevron Elon Mamrei", colorGroup: "gold", price: 240, rent: { base: 30, house1: 70, house2: 200, house3: 550, hotel: 650 }, buildCost: { house: 80, hotel: 150 }, houses: 0, hotel: false, ownerIndex: null },
+  { position: 10, type: "property", name: "Hevron Luxury Condos", colorGroup: "gold", price: 180, rent: { base: 25, house1: 60, house2: 175, house3: 500, hotel: 600 }, buildCost: { house: 60, hotel: 100 }, houses: 0, hotel: false, ownerIndex: null },
+  { position: 11, type: "property", name: "Hevron Hi Tech", colorGroup: "gold", price: 180, rent: { base: 25, house1: 60, house2: 175, house3: 500, hotel: 600 }, buildCost: { house: 60, hotel: 100 }, houses: 0, hotel: false, ownerIndex: null }
+];

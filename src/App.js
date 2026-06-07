@@ -3429,96 +3429,6 @@ function App() {
   return (
     <div style={styles.container}>
       <h1>TORAHPOLY</h1>
-      {/* TEST BUTTONS: Move to special squares */}
-      {gameStarted && (
-        <div style={{ marginBottom: 10 }}>
-          <button
-            style={{ ...styles.button, backgroundColor: '#28a745', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (16 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(16), 350);
-            }}
-          >
-            TEST: Move to Tzedakah (16)
-          </button>
-          <button
-            style={{ ...styles.button, backgroundColor: '#ffc107', color: '#333', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (20 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(20), 350);
-            }}
-          >
-            TEST: Move to Collect (20)
-          </button>
-          <button
-            style={{ ...styles.button, backgroundColor: '#e53935', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (21 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(21), 350);
-            }}
-          >
-            TEST: Move to Yoseph Pit (21)
-          </button>
-          <button
-            style={{ ...styles.button, backgroundColor: '#6a1b9a', color: '#fff', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (31 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(31), 350);
-            }}
-          >
-            TEST: Move to Yeshiva (31)
-          </button>
-          <button
-            style={{ ...styles.button, backgroundColor: '#8bc34a', color: '#222', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (17 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(17), 350);
-            }}
-          >
-            TEST: Move to Yeshiva (17)
-          </button>
-          <button
-            style={{ ...styles.button, backgroundColor: '#00bcd4', color: '#fff', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (10 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(10), 350);
-            }}
-          >
-            TEST: Move to 10
-          </button>
-          {/* MANNA BUTTON: Move to Manna Foods (25) */}
-          <button
-            style={{ ...styles.button, backgroundColor: '#ffd600', color: '#222', marginRight: 8, border: '2px solid #bdb76b' }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (25 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(25), 350);
-            }}
-          >
-            MANNA: Go to Manna Foods (25)
-          </button>
-        </div>
-      )}
       {/* ...existing code... */}
       <YeshivaModal
         open={showYeshivaModal}
@@ -4006,6 +3916,10 @@ const modalStyles = {
 };
 
 export default App;
+
+
+
+
 
 
 

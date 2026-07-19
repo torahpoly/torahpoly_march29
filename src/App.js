@@ -3154,20 +3154,18 @@ function App() {
     import('firebase/firestore').then(({ doc, updateDoc }) => {
       const gameRef = doc(db, "games", multiplayer.gameId);
       updateDoc(gameRef, {
-        gameState: {
-          players: players.map(p => ({
-            name: p.name,
-            position: typeof p.position === 'number' ? p.position : 0,
-            money: typeof p.money === 'number' ? p.money : 2000,
-            zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 1000,
-            missTurn: !!p.missTurn,
-            color: p.color || null
-          })),
-          currentPlayerIndex: typeof currentPlayerIndex === 'number' ? currentPlayerIndex : 0,
-          boardEvents: boardEvents,
-          mannaPayer: mannaPayer,
-          mannaAmount: mannaAmount
-        }
+        'gameState.players': players.map(p => ({
+          name: p.name,
+          position: typeof p.position === 'number' ? p.position : 0,
+          money: typeof p.money === 'number' ? p.money : 2000,
+          zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 1000,
+          missTurn: !!p.missTurn,
+          color: p.color || null
+        })),
+        'gameState.currentPlayerIndex': typeof currentPlayerIndex === 'number' ? currentPlayerIndex : 0,
+        'gameState.boardEvents': boardEvents,
+        'gameState.mannaPayer': mannaPayer,
+        'gameState.mannaAmount': mannaAmount
       });
     });
   }, [players, currentPlayerIndex, multiplayer.enabled, multiplayer.gameId]);

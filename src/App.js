@@ -126,7 +126,7 @@ async function setPlayerColorInFirestore(gameId, playerName, color) {
 
 // --- Multiplayer Entry Minimal UI ---
 import { db } from "./firebase";
-import { doc, setDoc, updateDoc, arrayUnion, getDoc } from "firebase/firestore";
+import { doc, setDoc, updateDoc, getDoc } from "firebase/firestore";
 
 function MultiplayerEntry({ onJoin }) {
   const [gameId, setGameId] = useState("");
@@ -136,26 +136,43 @@ function MultiplayerEntry({ onJoin }) {
     if (!gameId || !playerName) return;
     const gameRef = doc(db, "games", gameId);
     const gameSnap = await getDoc(gameRef);
+    const playerTemplate = {
+      name: playerName,
+      position: 0,
+      money: 2000,
+      zchutPoints: 1000,
+      missTurn: false,
+      color: null
+    };
+
     if (!gameSnap.exists()) {
-      // Create new game doc with this player in gameState.waitingRoom
+      // Create new game with the first joined player in the shared players list.
       await setDoc(gameRef, {
         gameState: {
-          players: [], // Start with empty players
+          players: [playerTemplate],
           waitingRoom: [{ name: playerName, joined: Date.now() }],
           currentPlayerIndex: 0
         },
         created: Date.now(),
       });
     } else {
-      // Add player to waitingRoom (if not already present)
+      // Add player to lobby-visible players array if not already present.
       const data = gameSnap.data();
       const gs = data.gameState || {};
+      const playersArr = Array.isArray(gs.players) ? gs.players : [];
+      const alreadyPlayer = playersArr.some(p => p.name === playerName);
       const waitingArr = Array.isArray(gs.waitingRoom) ? gs.waitingRoom : [];
-      const already = waitingArr.some(p => p.name === playerName);
-      if (!already) {
-        await updateDoc(gameRef, {
-          'gameState.waitingRoom': [...waitingArr, { name: playerName, joined: Date.now() }]
-        });
+      const alreadyWaiting = waitingArr.some(p => p.name === playerName);
+
+      const updates = {};
+      if (!alreadyPlayer) {
+        updates['gameState.players'] = [...playersArr, playerTemplate];
+      }
+      if (!alreadyWaiting) {
+        updates['gameState.waitingRoom'] = [...waitingArr, { name: playerName, joined: Date.now() }];
+      }
+      if (Object.keys(updates).length > 0) {
+        await updateDoc(gameRef, updates);
       }
     }
     onJoin(gameId, playerName);

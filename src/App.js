@@ -253,7 +253,7 @@ function MannaFoodsModal({ open, onClose, currentPlayer, onPay }) {
 }
 
 // src/App.js
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { TorahPolyBoardButtons } from "./TorahPolyBoardButtons";
 import MannaFoodsPayModal from "./MannaFoodsPayModal";
 
@@ -3101,6 +3101,7 @@ function App() {
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   // --- Multiplayer state ---
   const [multiplayer, setMultiplayer] = useState({ enabled: false, gameId: null, playerName: null });
+  const skipNextMultiplayerSyncRef = useRef(false);
   // Expose currentPlayerIndex for modals
   useEffect(() => {
     window.currentPlayerIndex = currentPlayerIndex;
@@ -3118,6 +3119,7 @@ function App() {
       unsub = onSnapshot(gameRef, (snap) => {
         const data = snap.data();
         if (data && data.gameState) {
+          skipNextMultiplayerSyncRef.current = true;
           setPlayers((prev) => {
             const prevStr = JSON.stringify((prev || []).map(p => ({ name: p.name, position: p.position, money: p.money, zchutPoints: p.zchutPoints, missTurn: p.missTurn, color: p.color })));
             const newStr = JSON.stringify((data.gameState.players || []).map(p => ({ name: p.name, position: p.position, money: p.money, zchutPoints: p.zchutPoints, missTurn: p.missTurn, color: p.color })));
@@ -3151,6 +3153,10 @@ function App() {
     if (!multiplayer.enabled || !multiplayer.gameId) return;
     // Only push if players array is not empty
     if (!players || players.length === 0) return;
+    if (skipNextMultiplayerSyncRef.current) {
+      skipNextMultiplayerSyncRef.current = false;
+      return;
+    }
     import('firebase/firestore').then(({ doc, updateDoc }) => {
       const gameRef = doc(db, "games", multiplayer.gameId);
       updateDoc(gameRef, {

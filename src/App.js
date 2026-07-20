@@ -3160,6 +3160,7 @@ function App() {
   // --- Push local game state to Firestore when changed (multiplayer only) ---
   useEffect(() => {
     if (!multiplayer.enabled || !multiplayer.gameId) return;
+    if (!gameStarted) return;
     // Only push if players array is not empty
     if (!players || players.length === 0) return;
     if (skipNextMultiplayerSyncRef.current) {
@@ -3183,7 +3184,7 @@ function App() {
         'gameState.mannaAmount': mannaAmount
       });
     });
-  }, [players, currentPlayerIndex, multiplayer.enabled, multiplayer.gameId]);
+  }, [players, currentPlayerIndex, multiplayer.enabled, multiplayer.gameId, gameStarted]);
   const [qaMode, setQaMode] = useState(false);
   const [currentCard, setCurrentCard] = useState(null);
   const [boardWidth, setBoardWidth] = useState(Math.min(window.innerWidth * 0.95, referenceSize));

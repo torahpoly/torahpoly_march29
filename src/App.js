@@ -178,13 +178,7 @@ function MultiplayerEntry({ onJoin }) {
         await updateDoc(gameRef, updates);
       }
     }
-    const finalSnap = await getDoc(gameRef);
-    const finalData = finalSnap.exists() ? finalSnap.data() : {};
-    const finalPlayers = Array.isArray(finalData?.gameState?.players)
-      ? finalData.gameState.players.map((p, i) => ({ ...p, index: i }))
-      : [];
-
-    onJoin(normalizedGameId, normalizedPlayerName, finalPlayers);
+    onJoin(normalizedGameId, normalizedPlayerName);
   };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 80 }}>
@@ -3550,8 +3544,7 @@ function App() {
   if (!multiplayer.enabled) {
     return (
       <MultiplayerEntry
-        onJoin={(gameId, playerName, initialPlayers = []) => {
-          setPlayers(initialPlayers);
+        onJoin={(gameId, playerName) => {
           setMultiplayer({ enabled: true, gameId, playerName });
         }}
       />

@@ -133,11 +133,14 @@ function MultiplayerEntry({ onJoin }) {
   const [playerName, setPlayerName] = useState("");
   // Save player info to Firestore on join (now inside gameState)
   const handleJoin = async () => {
-    if (!gameId || !playerName) return;
-    const gameRef = doc(db, "games", gameId);
+    const normalizedGameId = gameId.trim();
+    const normalizedPlayerName = playerName.trim();
+    if (!normalizedGameId || !normalizedPlayerName) return;
+
+    const gameRef = doc(db, "games", normalizedGameId);
     const gameSnap = await getDoc(gameRef);
     const playerTemplate = {
-      name: playerName,
+      name: normalizedPlayerName,
       position: 0,
       money: 2000,
       zchutPoints: 1000,
@@ -150,7 +153,7 @@ function MultiplayerEntry({ onJoin }) {
       await setDoc(gameRef, {
         gameState: {
           players: [playerTemplate],
-          waitingRoom: [{ name: playerName, joined: Date.now() }],
+          waitingRoom: [{ name: normalizedPlayerName, joined: Date.now() }],
           currentPlayerIndex: 0
         },
         created: Date.now(),
@@ -160,22 +163,28 @@ function MultiplayerEntry({ onJoin }) {
       const data = gameSnap.data();
       const gs = data.gameState || {};
       const playersArr = Array.isArray(gs.players) ? gs.players : [];
-      const alreadyPlayer = playersArr.some(p => p.name === playerName);
+      const alreadyPlayer = playersArr.some(p => p.name === normalizedPlayerName);
       const waitingArr = Array.isArray(gs.waitingRoom) ? gs.waitingRoom : [];
-      const alreadyWaiting = waitingArr.some(p => p.name === playerName);
+      const alreadyWaiting = waitingArr.some(p => p.name === normalizedPlayerName);
 
       const updates = {};
       if (!alreadyPlayer) {
         updates['gameState.players'] = [...playersArr, playerTemplate];
       }
       if (!alreadyWaiting) {
-        updates['gameState.waitingRoom'] = [...waitingArr, { name: playerName, joined: Date.now() }];
+        updates['gameState.waitingRoom'] = [...waitingArr, { name: normalizedPlayerName, joined: Date.now() }];
       }
       if (Object.keys(updates).length > 0) {
         await updateDoc(gameRef, updates);
       }
     }
-    onJoin(gameId, playerName);
+    const finalSnap = await getDoc(gameRef);
+    const finalData = finalSnap.exists() ? finalSnap.data() : {};
+    const finalPlayers = Array.isArray(finalData?.gameState?.players)
+      ? finalData.gameState.players.map((p, i) => ({ ...p, index: i }))
+      : [];
+
+    onJoin(normalizedGameId, normalizedPlayerName, finalPlayers);
   };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 80 }}>
@@ -3540,7 +3549,8 @@ function App() {
   if (!multiplayer.enabled) {
     return (
       <MultiplayerEntry
-        onJoin={(gameId, playerName) => {
+        onJoin={(gameId, playerName, initialPlayers = []) => {
+          setPlayers(initialPlayers);
           setMultiplayer({ enabled: true, gameId, playerName });
         }}
       />
@@ -3566,7 +3576,7 @@ function App() {
       />
       {!gameStarted ? (
         <>
-          {lobbyPlayers.length < maxPlayers && (
+          {!multiplayer.enabled && lobbyPlayers.length < maxPlayers && (
             <div style={styles.inputRow}>
               <input type="text" placeholder="Player Name" value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} style={styles.input} />
               <select
@@ -3585,6 +3595,28 @@ function App() {
                 {availableColors.filter(c => !lobbyPlayers.some(p => p.color && p.color === c)).map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               <button onClick={addPlayer} style={styles.button}>Add Player</button>
+            </div>
+          )}
+          {multiplayer.enabled && (
+            <div style={styles.inputRow}>
+              <span style={{ marginRight: 8, fontWeight: 600 }}>Your Color:</span>
+              <select
+                value={(players.find(p => p.name === multiplayer.playerName)?.color) || ""}
+                onChange={async (e) => {
+                  const color = e.target.value;
+                  if (!color) return;
+                  setPlayers(prev => prev.map(p => p.name === multiplayer.playerName ? { ...p, color } : p));
+                  if (multiplayer.gameId && multiplayer.playerName) {
+                    await setPlayerColorInFirestore(multiplayer.gameId, multiplayer.playerName, color);
+                  }
+                }}
+                style={styles.input}
+              >
+                <option value="">Choose Color</option>
+                {availableColors
+                  .filter(c => !lobbyPlayers.some(p => p.name !== multiplayer.playerName && p.color === c))
+                  .map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
           )}
           <h2>Joined Players ({lobbyPlayers.length}/{maxPlayers})</h2>

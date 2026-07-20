@@ -3110,8 +3110,19 @@ function App() {
     window.currentPlayerIndex = currentPlayerIndex;
   }, [currentPlayerIndex]);
 
-  // --- Multiplayer Firestore real-time sync (players list now inside gameState) ---
-  // (Handled by main gameState sync below)
+  // --- Immediate lobby player load on join ---
+  useEffect(() => {
+    if (!multiplayer.enabled || !multiplayer.gameId) return;
+    import('firebase/firestore').then(({ doc, getDoc }) => {
+      const gameRef = doc(db, "games", multiplayer.gameId);
+      getDoc(gameRef).then((snap) => {
+        const data = snap.exists() ? snap.data() : null;
+        if (data && data.gameState && Array.isArray(data.gameState.players) && data.gameState.players.length > 0) {
+          setPlayers(data.gameState.players.map((p, i) => ({ ...p, index: i })));
+        }
+      });
+    });
+  }, [multiplayer.enabled, multiplayer.gameId]);
 
   // --- Multiplayer Firestore real-time sync (main game state) ---
   useEffect(() => {

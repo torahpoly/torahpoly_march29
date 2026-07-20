@@ -3577,7 +3577,7 @@ function App() {
       />
       {!gameStarted ? (
         <>
-          {lobbyPlayers.length < maxPlayers && (
+          {!multiplayer.enabled && lobbyPlayers.length < maxPlayers && (
             <div style={styles.inputRow}>
               <input type="text" placeholder="Player Name" value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} style={styles.input} />
               <select
@@ -3600,7 +3600,7 @@ function App() {
           )}
           {multiplayer.enabled && (
             <div style={styles.inputRow}>
-              <span style={{ marginRight: 8, fontWeight: 600 }}>Your Color:</span>
+              <span style={{ marginRight: 8, fontWeight: 600 }}>Choose Color:</span>
               <select
                 value={(players.find(p => p.name === multiplayer.playerName)?.color) || ""}
                 onChange={async (e) => {

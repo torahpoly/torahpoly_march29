@@ -3576,7 +3576,7 @@ function App() {
       />
       {!gameStarted ? (
         <>
-          {!multiplayer.enabled && lobbyPlayers.length < maxPlayers && (
+          {lobbyPlayers.length < maxPlayers && (
             <div style={styles.inputRow}>
               <input type="text" placeholder="Player Name" value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} style={styles.input} />
               <select

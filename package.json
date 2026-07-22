@@ -1,19 +1,17 @@
 {
   "name": "monopoly-starter-template",
-  "homepage": ".",
   "version": "1.0.0",
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build"
   },
   "dependencies": {
-    "firebase": "^12.11.0",
-    "react": "^18.2.0",
+    "firebase": "^12.16.0",
+    "react": "^18.0.0",
     "react-dice-complete": "^2.2.0",
     "react-dice-roll": "^1.2.2",
-    "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1",
-    "socket.io-client": "^4.8.3"
+    "react-dom": "^18.0.0",
+    "react-scripts": "5.0.1"
   },
   "browserslist": {
     "production": [

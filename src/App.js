@@ -126,39 +126,59 @@ async function setPlayerColorInFirestore(gameId, playerName, color) {
 
 // --- Multiplayer Entry Minimal UI ---
 import { db } from "./firebase";
-import { doc, setDoc, updateDoc, arrayUnion, getDoc } from "firebase/firestore";
+import { doc, setDoc, updateDoc, getDoc } from "firebase/firestore";
 
 function MultiplayerEntry({ onJoin }) {
   const [gameId, setGameId] = useState("");
   const [playerName, setPlayerName] = useState("");
   // Save player info to Firestore on join (now inside gameState)
   const handleJoin = async () => {
-    if (!gameId || !playerName) return;
-    const gameRef = doc(db, "games", gameId);
+    const normalizedGameId = gameId.trim();
+    const normalizedPlayerName = playerName.trim();
+    if (!normalizedGameId || !normalizedPlayerName) return;
+
+    const gameRef = doc(db, "games", normalizedGameId);
     const gameSnap = await getDoc(gameRef);
+    const playerTemplate = {
+      name: normalizedPlayerName,
+      position: 0,
+      money: 2000,
+      zchutPoints: 1000,
+      missTurn: false,
+      color: null
+    };
+
     if (!gameSnap.exists()) {
-      // Create new game doc with this player in gameState.waitingRoom
+      // Create new game with the first joined player in the shared players list.
       await setDoc(gameRef, {
         gameState: {
-          players: [], // Start with empty players
-          waitingRoom: [{ name: playerName, joined: Date.now() }],
+          players: [playerTemplate],
+          waitingRoom: [{ name: normalizedPlayerName, joined: Date.now() }],
           currentPlayerIndex: 0
         },
         created: Date.now(),
       });
     } else {
-      // Add player to waitingRoom (if not already present)
+      // Add player to lobby-visible players array if not already present.
       const data = gameSnap.data();
       const gs = data.gameState || {};
+      const playersArr = Array.isArray(gs.players) ? gs.players : [];
+      const alreadyPlayer = playersArr.some(p => p.name === normalizedPlayerName);
       const waitingArr = Array.isArray(gs.waitingRoom) ? gs.waitingRoom : [];
-      const already = waitingArr.some(p => p.name === playerName);
-      if (!already) {
-        await updateDoc(gameRef, {
-          'gameState.waitingRoom': [...waitingArr, { name: playerName, joined: Date.now() }]
-        });
+      const alreadyWaiting = waitingArr.some(p => p.name === normalizedPlayerName);
+
+      const updates = {};
+      if (!alreadyPlayer) {
+        updates['gameState.players'] = [...playersArr, playerTemplate];
+      }
+      if (!alreadyWaiting) {
+        updates['gameState.waitingRoom'] = [...waitingArr, { name: normalizedPlayerName, joined: Date.now() }];
+      }
+      if (Object.keys(updates).length > 0) {
+        await updateDoc(gameRef, updates);
       }
     }
-    onJoin(gameId, playerName);
+    onJoin(normalizedGameId, normalizedPlayerName);
   };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 80 }}>
@@ -188,10 +208,10 @@ function MultiplayerEntry({ onJoin }) {
 
 // --- Manna Foods Modal ---
 function MannaFoodsModal({ open, onClose, currentPlayer, onPay }) {
-  if (!open) return null;
-
   const [inputValue, setInputValue] = useState("");
   const [error, setError] = useState("");
+
+  if (!open) return null;
 
   const handleSubmit = () => {
     const amount = parseInt(inputValue);
@@ -199,7 +219,7 @@ function MannaFoodsModal({ open, onClose, currentPlayer, onPay }) {
       setError("Invalid amount.");
       return;
     }
-    if (currentPlayer.money < amount) {
+    if ((currentPlayer?.money || 0) < amount) {
       setError("You don't have enough money!");
       return;
     }
@@ -236,35 +256,104 @@ function MannaFoodsModal({ open, onClose, currentPlayer, onPay }) {
 }
 
 // src/App.js
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { TorahPolyBoardButtons } from "./TorahPolyBoardButtons";
 import MannaFoodsPayModal from "./MannaFoodsPayModal";
 
 // --- Mazal Card Modal ---
 import { mazalCards, harHaBayitCards, tzadikCard, parshaCard, tzadikCards } from "./TorahPolyBoardButtons";
 // --- Parsha Card Modal ---
-function ParshaCardModal({ open, onClose, currentPlayer, setPlayers }) {
+function ParshaCardModal({
+  open,
+  onClose,
+  currentPlayer,
+  setPlayers,
+  cardIndex: forcedCardIndex,
+  multiplayerEnabled,
+  multiplayerGameId,
+  canClaimParshaZchut,
+  canControlParsha,
+}) {
   const [shownAnswers, setShownAnswers] = useState([]);
+  const [approvedQuestions, setApprovedQuestions] = useState([]);
   const [claimedQuestions, setClaimedQuestions] = useState([]);
   const [cardIndex, setCardIndex] = useState(0); // 0: Noach, 1: Bereshit, etc.
   const [shuffled, setShuffled] = useState(false);
   const [cardsState, setCardsState] = useState(null);
   const [originalCards, setOriginalCards] = useState(null);
+
+  const syncParshaModalState = async (nextShown, nextApproved, nextClaimed) => {
+    if (!multiplayerEnabled || !multiplayerGameId) return;
+    try {
+      const gameRef = doc(db, "games", multiplayerGameId);
+      await updateDoc(gameRef, {
+        'gameState.parshaModalState': {
+          shownAnswers: nextShown,
+          approvedQuestions: nextApproved,
+          claimedQuestions: nextClaimed,
+        }
+      });
+    } catch (err) {
+      console.error('Failed to sync Parsha modal state:', err);
+    }
+  };
+
   useEffect(() => {
     if (open && !cardsState) {
       setCardsState(cards);
       setOriginalCards(cards);
       setShuffled(false);
-      // Do not reset cardIndex here
+      setShownAnswers([]);
+      setApprovedQuestions([]);
+      setClaimedQuestions([]);
+      if (typeof forcedCardIndex === 'number' && forcedCardIndex >= 0) {
+        setCardIndex(forcedCardIndex);
+      } else {
+        setCardIndex(0);
+      }
     }
     if (!open && cardsState) {
       setCardsState(null);
       setOriginalCards(null);
       setShuffled(false);
+      setShownAnswers([]);
+      setApprovedQuestions([]);
+      setClaimedQuestions([]);
       // Do not reset cardIndex here
     }
     // eslint-disable-next-line
-  }, [open]);
+  }, [open, forcedCardIndex]);
+
+  useEffect(() => {
+    if (!open || !multiplayerEnabled || !multiplayerGameId) return;
+    let unsub = null;
+
+    import('firebase/firestore').then(({ onSnapshot, doc }) => {
+      const gameRef = doc(db, "games", multiplayerGameId);
+      unsub = onSnapshot(gameRef, (snap) => {
+        const data = snap.data();
+        const state = data?.gameState?.parshaModalState;
+        if (!state) return;
+
+        if (Array.isArray(state.shownAnswers)) setShownAnswers(state.shownAnswers);
+        if (Array.isArray(state.approvedQuestions)) setApprovedQuestions(state.approvedQuestions);
+        if (Array.isArray(state.claimedQuestions)) setClaimedQuestions(state.claimedQuestions);
+      });
+    });
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [open, multiplayerEnabled, multiplayerGameId]);
+
+  const clearParshaQuestionState = () => {
+    setShownAnswers([]);
+    setApprovedQuestions([]);
+    setClaimedQuestions([]);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncParshaModalState([], [], []);
+    }
+  };
 
   // Shuffle only the qa cards, keep deck cards in place
   const handleShuffle = () => {
@@ -291,8 +380,7 @@ function ParshaCardModal({ open, onClose, currentPlayer, setPlayers }) {
     setCardsState(newCards);
     setShuffled(true);
     setCardIndex(0);
-    setShownAnswers([]);
-    setClaimedQuestions([]);
+    clearParshaQuestionState();
   };
 
   // Restore original order
@@ -301,8 +389,7 @@ function ParshaCardModal({ open, onClose, currentPlayer, setPlayers }) {
       setCardsState(originalCards);
       setShuffled(false);
       setCardIndex(0);
-      setShownAnswers([]);
-      setClaimedQuestions([]);
+      clearParshaQuestionState();
     }
   };
 
@@ -1780,12 +1867,40 @@ function ParshaCardModal({ open, onClose, currentPlayer, setPlayers }) {
   ]; // End of cards array
 
   const handleShowAnswer = (idx) => {
-    setShownAnswers((prev) => [...prev, idx]);
+    if (!canControlParsha) return;
+    if (shownAnswers.includes(idx)) return;
+    const nextShown = [...shownAnswers, idx];
+    setShownAnswers(nextShown);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncParshaModalState(nextShown, approvedQuestions, claimedQuestions);
+    }
+  };
+
+  const handleApproveClaim = (idx) => {
+    if (!canControlParsha) return;
+    if (approvedQuestions.includes(idx)) return;
+    const nextApproved = [...approvedQuestions, idx];
+    setApprovedQuestions(nextApproved);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncParshaModalState(shownAnswers, nextApproved, claimedQuestions);
+    }
   };
 
   const handleClaimZchut = (idx) => {
     if (claimedQuestions.includes(idx)) return;
-    setClaimedQuestions((prev) => [...prev, idx]);
+    if (!canControlParsha || !canClaimParshaZchut) {
+      alert('Only the current turn player can claim this zchut.');
+      return;
+    }
+    if (!approvedQuestions.includes(idx)) {
+      alert('Please get table approval first.');
+      return;
+    }
+    const nextClaimed = [...claimedQuestions, idx];
+    setClaimedQuestions(nextClaimed);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncParshaModalState(shownAnswers, approvedQuestions, nextClaimed);
+    }
     const zchut = (cardsState || cards)[cardIndex].questions[idx].zchut;
     setPlayers((prevPlayers) => {
       return prevPlayers.map((p) =>
@@ -1796,14 +1911,14 @@ function ParshaCardModal({ open, onClose, currentPlayer, setPlayers }) {
   };
 
   const handleNext = () => {
-    setShownAnswers([]);
-    setClaimedQuestions([]);
+    if (!canControlParsha) return;
+    clearParshaQuestionState();
     setCardIndex((prev) => Math.min(prev + 1, (cardsState || cards).length - 1));
   };
 
   const handleBack = () => {
-    setShownAnswers([]);
-    setClaimedQuestions([]);
+    if (!canControlParsha) return;
+    clearParshaQuestionState();
     setCardIndex((prev) => Math.max(prev - 1, 0));
   };
 
@@ -1840,17 +1955,32 @@ function ParshaCardModal({ open, onClose, currentPlayer, setPlayers }) {
                 <strong>Q{idx + 1}: {q.question}</strong><br />
                 <span style={{ color: '#28a745' }}>Zchut:</span> {q.zchut}<br />
                 {!shownAnswers.includes(idx) && (
-                  <button style={modalStyles.button} onClick={() => handleShowAnswer(idx)}>Show Answer</button>
+                  <button style={modalStyles.button} onClick={() => handleShowAnswer(idx)} disabled={!canControlParsha}>{canControlParsha ? 'Show Answer' : 'Only Turn Player Can Control'}</button>
                 )}
                 {shownAnswers.includes(idx) && (
                   <>
                     <span style={{ color: '#007bff' }}>Answer:</span> {q.answer}<br />
+                    {!approvedQuestions.includes(idx) ? (
+                      <button
+                        style={{ ...modalStyles.button, backgroundColor: '#6f42c1' }}
+                        onClick={() => handleApproveClaim(idx)}
+                        disabled={!canControlParsha}
+                      >
+                        {canControlParsha ? 'Approve Claim' : 'Only Turn Player Can Control'}
+                      </button>
+                    ) : (
+                      <div style={{ color: '#6f42c1', fontWeight: 'bold', margin: '6px 0' }}>
+                        Approved by table
+                      </div>
+                    )}
                     <button
                       style={{ ...modalStyles.button, backgroundColor: claimedQuestions.includes(idx) ? '#ccc' : '#28a745' }}
                       onClick={() => handleClaimZchut(idx)}
-                      disabled={claimedQuestions.includes(idx)}
+                      disabled={claimedQuestions.includes(idx) || !approvedQuestions.includes(idx) || !canClaimParshaZchut || !canControlParsha}
                     >
-                      {claimedQuestions.includes(idx) ? 'Zchut Claimed' : 'Claim Zchut'}
+                      {claimedQuestions.includes(idx)
+                        ? 'Zchut Claimed'
+                        : (!canControlParsha || !canClaimParshaZchut ? 'Only Turn Player Can Claim' : (!approvedQuestions.includes(idx) ? 'Waiting For Approval' : 'Claim Zchut'))}
                     </button>
                   </>
                 )}
@@ -1862,33 +1992,89 @@ function ParshaCardModal({ open, onClose, currentPlayer, setPlayers }) {
           </>
         )}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
-          <button style={modalStyles.button} onClick={handleBack} disabled={safeIndex === 0}>Back</button>
-          <button style={modalStyles.button} onClick={handleNext} disabled={safeIndex === (cardsState || cards).length - 1}>Next</button>
-          <button style={modalStyles.button} onClick={onClose}>Close</button>
+          <button style={modalStyles.button} onClick={handleBack} disabled={safeIndex === 0 || !canControlParsha}>{!canControlParsha ? 'Only Turn Player Can Control' : 'Back'}</button>
+          <button style={modalStyles.button} onClick={handleNext} disabled={safeIndex === (cardsState || cards).length - 1 || !canControlParsha}>{!canControlParsha ? 'Only Turn Player Can Control' : 'Next'}</button>
+          <button style={modalStyles.button} onClick={onClose} disabled={!canControlParsha}>{canControlParsha ? 'Close' : 'Only Turn Player Can Close'}</button>
         </div>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginTop: 12 }}>
-          <button style={{ ...modalStyles.button, backgroundColor: '#ff9800' }} onClick={handleShuffle}>Shuffle Parsha</button>
-          <button style={{ ...modalStyles.button, backgroundColor: '#007bff' }} onClick={handleReturn}>Return Parsha</button>
+          <button style={{ ...modalStyles.button, backgroundColor: '#ff9800' }} onClick={handleShuffle} disabled={!canControlParsha}>{canControlParsha ? 'Shuffle Parsha' : 'Only Turn Player Can Control'}</button>
+          <button style={{ ...modalStyles.button, backgroundColor: '#007bff' }} onClick={handleReturn} disabled={!canControlParsha}>{canControlParsha ? 'Return Parsha' : 'Only Turn Player Can Control'}</button>
         </div>
       </div>
     </div>
   );
 }
 // --- Tzadik Card Modal ---
-function TzadikCardModal({ open, onClose, currentPlayer, setPlayers, cardIndex, setCardIndex }) {
+function TzadikCardModal({
+  open,
+  onClose,
+  currentPlayer,
+  setPlayers,
+  cardIndex,
+  setCardIndex,
+  canControlTzadik,
+  multiplayerEnabled,
+  multiplayerGameId,
+}) {
   const [shownAnswers, setShownAnswers] = useState([]);
   const [claimedQuestions, setClaimedQuestions] = useState([]);
+
+  const syncTzadikModalState = async (nextShown, nextClaimed) => {
+    if (!multiplayerEnabled || !multiplayerGameId) return;
+    try {
+      const gameRef = doc(db, "games", multiplayerGameId);
+      await updateDoc(gameRef, {
+        'gameState.tzadikModalState': {
+          shownAnswers: nextShown,
+          claimedQuestions: nextClaimed,
+        }
+      });
+    } catch (err) {
+      console.error('Failed to sync Tzadik modal state:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!open || !multiplayerEnabled || !multiplayerGameId) return;
+    let unsub = null;
+
+    import('firebase/firestore').then(({ onSnapshot, doc }) => {
+      const gameRef = doc(db, "games", multiplayerGameId);
+      unsub = onSnapshot(gameRef, (snap) => {
+        const data = snap.data();
+        const state = data?.gameState?.tzadikModalState;
+        if (!state) return;
+        if (Array.isArray(state.shownAnswers)) setShownAnswers(state.shownAnswers);
+        if (Array.isArray(state.claimedQuestions)) setClaimedQuestions(state.claimedQuestions);
+      });
+    });
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [open, multiplayerEnabled, multiplayerGameId]);
+
   if (!open) return null;
 
   const currentCard = tzadikCards[cardIndex];
 
   const handleShowAnswer = (idx) => {
-    setShownAnswers((prev) => [...prev, idx]);
+    if (!canControlTzadik) return;
+    const nextShown = shownAnswers.includes(idx) ? shownAnswers : [...shownAnswers, idx];
+    setShownAnswers(nextShown);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncTzadikModalState(nextShown, claimedQuestions);
+    }
   };
 
   const handleClaimZchut = (idx) => {
+    if (!canControlTzadik) return;
     if (claimedQuestions.includes(idx)) return;
-    setClaimedQuestions((prev) => [...prev, idx]);
+    const nextClaimed = [...claimedQuestions, idx];
+    setClaimedQuestions(nextClaimed);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncTzadikModalState(shownAnswers, nextClaimed);
+    }
     const zchut = currentCard.questions[idx].zchut;
     setPlayers((prevPlayers) => {
       return prevPlayers.map((p) =>
@@ -1899,14 +2085,22 @@ function TzadikCardModal({ open, onClose, currentPlayer, setPlayers, cardIndex, 
   };
 
   const handleNextCard = () => {
+    if (!canControlTzadik) return;
     setCardIndex((prev) => (prev + 1) % tzadikCards.length);
     setShownAnswers([]);
     setClaimedQuestions([]);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncTzadikModalState([], []);
+    }
   };
   const handlePrevCard = () => {
+    if (!canControlTzadik) return;
     setCardIndex((prev) => (prev - 1 + tzadikCards.length) % tzadikCards.length);
     setShownAnswers([]);
     setClaimedQuestions([]);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncTzadikModalState([], []);
+    }
   };
 
   return (
@@ -1918,7 +2112,7 @@ function TzadikCardModal({ open, onClose, currentPlayer, setPlayers, cardIndex, 
             <strong>Q{idx + 1}: {q.question}</strong><br />
             <span style={{ color: '#28a745' }}>Zchut:</span> {q.zchut}<br />
             {!shownAnswers.includes(idx) && (
-              <button style={modalStyles.button} onClick={() => handleShowAnswer(idx)}>Show Answer</button>
+              <button style={modalStyles.button} onClick={() => handleShowAnswer(idx)} disabled={!canControlTzadik}>{canControlTzadik ? 'Show Answer' : 'Only Turn Player Can Control'}</button>
             )}
             {shownAnswers.includes(idx) && (
               <>
@@ -1926,9 +2120,9 @@ function TzadikCardModal({ open, onClose, currentPlayer, setPlayers, cardIndex, 
                 <button
                   style={{ ...modalStyles.button, backgroundColor: claimedQuestions.includes(idx) ? '#ccc' : '#28a745' }}
                   onClick={() => handleClaimZchut(idx)}
-                  disabled={claimedQuestions.includes(idx)}
+                  disabled={claimedQuestions.includes(idx) || !canControlTzadik}
                 >
-                  {claimedQuestions.includes(idx) ? 'Zchut Claimed' : 'Claim Zchut'}
+                  {claimedQuestions.includes(idx) ? 'Zchut Claimed' : (canControlTzadik ? 'Claim Zchut' : 'Only Turn Player Can Claim')}
                 </button>
               </>
             )}
@@ -1938,18 +2132,64 @@ function TzadikCardModal({ open, onClose, currentPlayer, setPlayers, cardIndex, 
           If you get all answers correct you can pick a Tzadik card
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-          <button style={modalStyles.button} onClick={handlePrevCard}>Previous</button>
-          <button style={modalStyles.button} onClick={handleNextCard}>Next</button>
+          <button style={modalStyles.button} onClick={handlePrevCard} disabled={!canControlTzadik}>{canControlTzadik ? 'Previous' : 'Only Turn Player Can Control'}</button>
+          <button style={modalStyles.button} onClick={handleNextCard} disabled={!canControlTzadik}>{canControlTzadik ? 'Next' : 'Only Turn Player Can Control'}</button>
         </div>
-        <button style={modalStyles.button} onClick={onClose}>Close</button>
+        <button style={modalStyles.button} onClick={onClose} disabled={!canControlTzadik}>{canControlTzadik ? 'Close' : 'Only Turn Player Can Close'}</button>
       </div>
     </div>
   );
 }
 // --- Har HaBayit Card Modal ---
-function HarHaBayitCardModal({ open, onClose, currentPlayer, setPlayers, cardIndex, setCardIndex }) {
+function HarHaBayitCardModal({
+  open,
+  onClose,
+  currentPlayer,
+  setPlayers,
+  cardIndex,
+  setCardIndex,
+  canControlHarHaBayit,
+  multiplayerEnabled,
+  multiplayerGameId,
+}) {
   const [shownAnswers, setShownAnswers] = React.useState([]);
   const [claimedQuestions, setClaimedQuestions] = React.useState([]);
+
+  const syncHarHaBayitModalState = async (nextShown, nextClaimed) => {
+    if (!multiplayerEnabled || !multiplayerGameId) return;
+    try {
+      const gameRef = doc(db, "games", multiplayerGameId);
+      await updateDoc(gameRef, {
+        'gameState.harHaBayitModalState': {
+          shownAnswers: nextShown,
+          claimedQuestions: nextClaimed,
+        }
+      });
+    } catch (err) {
+      console.error('Failed to sync Har HaBayit modal state:', err);
+    }
+  };
+
+  React.useEffect(() => {
+    if (!open || !multiplayerEnabled || !multiplayerGameId) return;
+    let unsub = null;
+
+    import('firebase/firestore').then(({ onSnapshot, doc }) => {
+      const gameRef = doc(db, "games", multiplayerGameId);
+      unsub = onSnapshot(gameRef, (snap) => {
+        const data = snap.data();
+        const state = data?.gameState?.harHaBayitModalState;
+        if (!state) return;
+        if (Array.isArray(state.shownAnswers)) setShownAnswers(state.shownAnswers);
+        if (Array.isArray(state.claimedQuestions)) setClaimedQuestions(state.claimedQuestions);
+      });
+    });
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [open, multiplayerEnabled, multiplayerGameId]);
+
   React.useEffect(() => {
     if (!open) {
       setShownAnswers([]);
@@ -1961,12 +2201,22 @@ function HarHaBayitCardModal({ open, onClose, currentPlayer, setPlayers, cardInd
   const currentCard = harHaBayitCards[cardIndex];
 
   const handleShowAnswer = (idx) => {
-    setShownAnswers((prev) => [...prev, idx]);
+    if (!canControlHarHaBayit) return;
+    const nextShown = shownAnswers.includes(idx) ? shownAnswers : [...shownAnswers, idx];
+    setShownAnswers(nextShown);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncHarHaBayitModalState(nextShown, claimedQuestions);
+    }
   };
 
   const handleClaimZchut = (idx) => {
+    if (!canControlHarHaBayit) return;
     if (claimedQuestions.includes(idx)) return;
-    setClaimedQuestions((prev) => [...prev, idx]);
+    const nextClaimed = [...claimedQuestions, idx];
+    setClaimedQuestions(nextClaimed);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncHarHaBayitModalState(shownAnswers, nextClaimed);
+    }
     // Support both 'points' and 'zchut' fields for compatibility
     const q = currentCard.questions[idx];
     const zchut = q.zchut || q.points || 0;
@@ -1979,14 +2229,22 @@ function HarHaBayitCardModal({ open, onClose, currentPlayer, setPlayers, cardInd
   };
 
   const handleNextCard = () => {
+    if (!canControlHarHaBayit) return;
     setCardIndex((prev) => (prev + 1) % harHaBayitCards.length);
     setShownAnswers([]);
     setClaimedQuestions([]);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncHarHaBayitModalState([], []);
+    }
   };
   const handlePrevCard = () => {
+    if (!canControlHarHaBayit) return;
     setCardIndex((prev) => (prev - 1 + harHaBayitCards.length) % harHaBayitCards.length);
     setShownAnswers([]);
     setClaimedQuestions([]);
+    if (multiplayerEnabled && multiplayerGameId) {
+      syncHarHaBayitModalState([], []);
+    }
   };
 
   return (
@@ -1998,7 +2256,7 @@ function HarHaBayitCardModal({ open, onClose, currentPlayer, setPlayers, cardInd
             <strong>Q{idx + 1}: {q.question}</strong><br />
             <span style={{ color: '#28a745' }}>Zchut:</span> {q.zchut || q.points}<br />
             {!shownAnswers.includes(idx) && (
-              <button style={modalStyles.button} onClick={() => handleShowAnswer(idx)}>Show Answer</button>
+              <button style={modalStyles.button} onClick={() => handleShowAnswer(idx)} disabled={!canControlHarHaBayit}>{canControlHarHaBayit ? 'Show Answer' : 'Only Turn Player Can Control'}</button>
             )}
             {shownAnswers.includes(idx) && (
               <>
@@ -2006,9 +2264,9 @@ function HarHaBayitCardModal({ open, onClose, currentPlayer, setPlayers, cardInd
                 <button
                   style={{ ...modalStyles.button, backgroundColor: claimedQuestions.includes(idx) ? '#ccc' : '#28a745' }}
                   onClick={() => handleClaimZchut(idx)}
-                  disabled={claimedQuestions.includes(idx)}
+                  disabled={claimedQuestions.includes(idx) || !canControlHarHaBayit}
                 >
-                  {claimedQuestions.includes(idx) ? 'Zchut Claimed' : 'Claim Zchut'}
+                  {claimedQuestions.includes(idx) ? 'Zchut Claimed' : (canControlHarHaBayit ? 'Claim Zchut' : 'Only Turn Player Can Claim')}
                 </button>
               </>
             )}
@@ -2018,21 +2276,31 @@ function HarHaBayitCardModal({ open, onClose, currentPlayer, setPlayers, cardInd
           If you get all answers correct you can pick a Tzadik card
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-          <button style={modalStyles.button} onClick={handlePrevCard}>Previous</button>
-          <button style={modalStyles.button} onClick={handleNextCard}>Next</button>
+          <button style={modalStyles.button} onClick={handlePrevCard} disabled={!canControlHarHaBayit}>{canControlHarHaBayit ? 'Previous' : 'Only Turn Player Can Control'}</button>
+          <button style={modalStyles.button} onClick={handleNextCard} disabled={!canControlHarHaBayit}>{canControlHarHaBayit ? 'Next' : 'Only Turn Player Can Control'}</button>
         </div>
-        <button style={modalStyles.button} onClick={onClose}>Close</button>
+        <button style={modalStyles.button} onClick={onClose} disabled={!canControlHarHaBayit}>{canControlHarHaBayit ? 'Close' : 'Only Turn Player Can Close'}</button>
       </div>
     </div>
   );
 }
-function MazalCardModal({ open, onClose, currentPlayer, setPlayers, mazalCard, onAccept }) {
-  const [showReward, setShowReward] = useState(false);
-  useEffect(() => {
-    if (open) {
-      setShowReward(false);
-    }
-  }, [open, mazalCard]);
+function MazalCardModal({
+  open,
+  onClose,
+  currentPlayer,
+  setPlayers,
+  boardEvents,
+  setBoardEvents,
+  mazalCard,
+  onAccept,
+  onClaimed,
+  showReward,
+  onShowReward,
+  mazalClaimed,
+  mazalClaimedBy,
+  canClaimMazal,
+  canCloseMazal,
+}) {
   if (!open) return null;
 
   return (
@@ -2041,41 +2309,75 @@ function MazalCardModal({ open, onClose, currentPlayer, setPlayers, mazalCard, o
         <h2>{mazalCard.name} Card</h2>
         <p>{mazalCard.text}</p>
         {!showReward ? (
-          <button style={modalStyles.button} onClick={() => setShowReward(true)}>Show Mazal</button>
+          <button style={modalStyles.button} onClick={onShowReward} disabled={!canClaimMazal}>{canClaimMazal ? 'Show Mazal' : 'Only Turn Player Can Control'}</button>
         ) : (
           <>
+            {mazalClaimed && (
+              <div style={{ marginBottom: 10, color: '#28a745', fontWeight: 'bold' }}>
+                {mazalClaimedBy ? `${mazalClaimedBy} claimed zchut.` : 'Zchut claimed.'}
+              </div>
+            )}
             {/* Special logic for Aliyah boom card */}
             {mazalCard.special === "aliyahBoom" ? (
-              <button style={modalStyles.button} onClick={() => {
-                // Get owned properties
-                const ownedProps = Object.values(boardEvents)
-                  .map(e => e.card)
-                  .filter(card => card.ownerIndex === currentPlayer.index && card.type === "property");
+              <button style={modalStyles.button} disabled={mazalClaimed || !canClaimMazal} onClick={() => {
+                // Get owned properties with their board square keys
+                const ownedProps = Object.entries(boardEvents || {})
+                  .map(([squareKey, e]) => ({ squareKey, card: e?.card }))
+                  .filter(({ card }) => card && card.ownerIndex === currentPlayer.index && card.type === "property");
                 if (ownedProps.length === 0) {
                   alert("You don't own any properties!");
                   onClose();
                   return;
                 }
-                let propList = ownedProps.map((p, i) => (i+1) + ': ' + p.name + ' (Houses: ' + (p.houses||0) + ', Hotel: ' + (p.hotel ? 'Yes' : 'No') + ')').join('\n');
+                let propList = ownedProps.map((p, i) => (i+1) + ': ' + p.card.name + ' (Houses: ' + (p.card.houses||0) + ', Hotel: ' + (p.card.hotel ? 'Yes' : 'No') + ')').join('\n');
                 let idx = parseInt(prompt('Choose a property for your free house/hotel (enter number):\n' + propList));
                 if (isNaN(idx) || idx < 1 || idx > ownedProps.length) {
                   alert('Invalid selection.');
                   return;
                 }
-                let prop = ownedProps[idx-1];
-                if (!prop.hotel && prop.houses < 4) {
-                  prop.houses = (prop.houses || 0) + 1;
-                  alert('You received a free house on ' + prop.name + '!');
-                } else if (!prop.hotel && prop.houses === 4) {
-                  prop.houses = 0;
-                  prop.hotel = true;
-                  alert('You received a free hotel on ' + prop.name + '!');
-                } else {
+                const selected = ownedProps[idx - 1];
+                const selectedCard = selected.card;
+                if (selectedCard.hotel) {
                   alert('This property already has a hotel. No upgrade possible.');
+                  return;
                 }
-                onClose();
+
+                if ((selectedCard.houses || 0) >= 3) {
+                  setBoardEvents((prev) => {
+                    const updated = { ...prev };
+                    const square = updated[selected.squareKey];
+                    if (!square || !square.card) return prev;
+                    updated[selected.squareKey] = {
+                      ...square,
+                      card: {
+                        ...square.card,
+                        houses: 0,
+                        hotel: true,
+                      },
+                    };
+                    return updated;
+                  });
+                  alert('You received a free hotel on ' + selectedCard.name + '!');
+                } else {
+                  setBoardEvents((prev) => {
+                    const updated = { ...prev };
+                    const square = updated[selected.squareKey];
+                    if (!square || !square.card) return prev;
+                    updated[selected.squareKey] = {
+                      ...square,
+                      card: {
+                        ...square.card,
+                        houses: (square.card.houses || 0) + 1,
+                        hotel: false,
+                      },
+                    };
+                    return updated;
+                  });
+                  alert('You received a free house on ' + selectedCard.name + '!');
+                }
+                onClaimed();
               }}>
-                Choose Property for Free House/Hotel
+                {mazalClaimed ? 'Already Claimed' : (!canClaimMazal ? 'Only Turn Player Can Claim' : 'Choose Property for Free House/Hotel')}
               </button>
             ) : (
               <>
@@ -2083,12 +2385,12 @@ function MazalCardModal({ open, onClose, currentPlayer, setPlayers, mazalCard, o
                   mazalCard.rewardType === "moneyAndZchut" ? (
                     <>
                       <p>Reward: $ {mazalCard.reward.money} and {mazalCard.reward.zchut} Zchut</p>
-                      <button style={modalStyles.button} onClick={onAccept}>Accept Reward</button>
+                      <button style={modalStyles.button} onClick={onAccept} disabled={mazalClaimed || !canClaimMazal}>{mazalClaimed ? 'Already Claimed' : (!canClaimMazal ? 'Only Turn Player Can Claim' : 'Accept Reward')}</button>
                     </>
                   ) : (
                     <>
                       <p>Reward: {mazalCard.rewardType === "zchut" ? (mazalCard.reward + ' Zchut') : ('$' + mazalCard.reward)}</p>
-                      <button style={modalStyles.button} onClick={onAccept}>Accept Reward</button>
+                      <button style={modalStyles.button} onClick={onAccept} disabled={mazalClaimed || !canClaimMazal}>{mazalClaimed ? 'Already Claimed' : (!canClaimMazal ? 'Only Turn Player Can Claim' : 'Accept Reward')}</button>
                     </>
                   )
                 )}
@@ -2103,12 +2405,14 @@ function MazalCardModal({ open, onClose, currentPlayer, setPlayers, mazalCard, o
                     Note: The bank has given these funds to the Tzedaka fund. So you may end up getting this back.
                   </div>
                 )}
-                <button style={modalStyles.button} onClick={onAccept}>{mazalCard.buttonText || "Accept Penalty"}</button>
+                <button style={modalStyles.button} onClick={onAccept} disabled={mazalClaimed || !canClaimMazal}>{mazalClaimed ? 'Already Claimed' : (!canClaimMazal ? 'Only Turn Player Can Claim' : (mazalCard.buttonText || "Accept Penalty"))}</button>
               </>
             )}
           </>
         )}
-        <button style={modalStyles.button} onClick={onClose}>Close</button>
+        <button style={modalStyles.button} onClick={onClose} disabled={!canCloseMazal}>
+          {canCloseMazal ? 'Close' : 'Only Turn Player Can Close'}
+        </button>
       </div>
     </div>
   );
@@ -2980,13 +3284,25 @@ function App() {
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   // --- Multiplayer state ---
   const [multiplayer, setMultiplayer] = useState({ enabled: false, gameId: null, playerName: null });
+  const skipNextMultiplayerSyncRef = useRef(false);
   // Expose currentPlayerIndex for modals
   useEffect(() => {
     window.currentPlayerIndex = currentPlayerIndex;
   }, [currentPlayerIndex]);
 
-  // --- Multiplayer Firestore real-time sync (players list now inside gameState) ---
-  // (Handled by main gameState sync below)
+  // --- Immediate lobby player load on join ---
+  useEffect(() => {
+    if (!multiplayer.enabled || !multiplayer.gameId) return;
+    import('firebase/firestore').then(({ doc, getDoc }) => {
+      const gameRef = doc(db, "games", multiplayer.gameId);
+      getDoc(gameRef).then((snap) => {
+        const data = snap.exists() ? snap.data() : null;
+        if (data && data.gameState && Array.isArray(data.gameState.players) && data.gameState.players.length > 0) {
+          setPlayers(data.gameState.players.map((p, i) => ({ ...p, index: i })));
+        }
+      });
+    });
+  }, [multiplayer.enabled, multiplayer.gameId]);
 
   // --- Multiplayer Firestore real-time sync (main game state) ---
   useEffect(() => {
@@ -2997,6 +3313,7 @@ function App() {
       unsub = onSnapshot(gameRef, (snap) => {
         const data = snap.data();
         if (data && data.gameState) {
+          skipNextMultiplayerSyncRef.current = true;
           setPlayers((prev) => {
             const prevStr = JSON.stringify((prev || []).map(p => ({ name: p.name, position: p.position, money: p.money, zchutPoints: p.zchutPoints, missTurn: p.missTurn, color: p.color })));
             const newStr = JSON.stringify((data.gameState.players || []).map(p => ({ name: p.name, position: p.position, money: p.money, zchutPoints: p.zchutPoints, missTurn: p.missTurn, color: p.color })));
@@ -3028,28 +3345,31 @@ function App() {
   // --- Push local game state to Firestore when changed (multiplayer only) ---
   useEffect(() => {
     if (!multiplayer.enabled || !multiplayer.gameId) return;
+    if (!gameStarted) return;
     // Only push if players array is not empty
     if (!players || players.length === 0) return;
+    if (skipNextMultiplayerSyncRef.current) {
+      skipNextMultiplayerSyncRef.current = false;
+      return;
+    }
     import('firebase/firestore').then(({ doc, updateDoc }) => {
       const gameRef = doc(db, "games", multiplayer.gameId);
       updateDoc(gameRef, {
-        gameState: {
-          players: players.map(p => ({
-            name: p.name,
-            position: typeof p.position === 'number' ? p.position : 0,
-            money: typeof p.money === 'number' ? p.money : 2000,
-            zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 1000,
-            missTurn: !!p.missTurn,
-            color: p.color || null
-          })),
-          currentPlayerIndex: typeof currentPlayerIndex === 'number' ? currentPlayerIndex : 0,
-          boardEvents: boardEvents,
-          mannaPayer: mannaPayer,
-          mannaAmount: mannaAmount
-        }
+        'gameState.players': players.map(p => ({
+          name: p.name,
+          position: typeof p.position === 'number' ? p.position : 0,
+          money: typeof p.money === 'number' ? p.money : 2000,
+          zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 1000,
+          missTurn: !!p.missTurn,
+          color: p.color || null
+        })),
+        'gameState.currentPlayerIndex': typeof currentPlayerIndex === 'number' ? currentPlayerIndex : 0,
+        'gameState.boardEvents': boardEvents,
+        'gameState.mannaPayer': mannaPayer,
+        'gameState.mannaAmount': mannaAmount
       });
     });
-  }, [players, currentPlayerIndex, multiplayer.enabled, multiplayer.gameId]);
+  }, [players, boardEvents, currentPlayerIndex, multiplayer.enabled, multiplayer.gameId, gameStarted]);
   const [qaMode, setQaMode] = useState(false);
   const [currentCard, setCurrentCard] = useState(null);
   const [boardWidth, setBoardWidth] = useState(Math.min(window.innerWidth * 0.95, referenceSize));
@@ -3067,6 +3387,23 @@ function App() {
   // Mazal card modal state
     const [showMazalModal, setShowMazalModal] = useState(false);
     const [mazalCardIndex, setMazalCardIndex] = useState(0);
+    const [mazalModalState, setMazalModalState] = useState({
+      showReward: false,
+      claimed: false,
+      claimedBy: null,
+    });
+
+    const syncMazalModalState = async (nextState) => {
+      if (!multiplayer.enabled || !multiplayer.gameId) return;
+      try {
+        const gameRef = doc(db, "games", multiplayer.gameId);
+        await updateDoc(gameRef, {
+          'gameState.mazalModalState': nextState,
+        });
+      } catch (err) {
+        console.error('Failed to sync Mazal modal state:', err);
+      }
+    };
 
     // --- Multiplayer Mazal Card Sync ---
     // Listen for mazalCardIndex/showMazalModal changes in Firestore
@@ -3083,6 +3420,15 @@ function App() {
             }
             if (typeof data.gameState.showMazalModal === 'boolean') {
               setShowMazalModal(data.gameState.showMazalModal);
+            }
+            const nextMazalState = data.gameState.mazalModalState;
+            if (nextMazalState && typeof nextMazalState === 'object') {
+              setMazalModalState((prev) => ({
+                ...prev,
+                showReward: !!nextMazalState.showReward,
+                claimed: !!nextMazalState.claimed,
+                claimedBy: nextMazalState.claimedBy || null,
+              }));
             }
           }
         });
@@ -3139,7 +3485,7 @@ function App() {
   }, [multiplayer.enabled, multiplayer.gameId]);
   // Parsha card modal state
   const [showParshaModal, setShowParshaModal] = useState(false);
-  const [parshaCardIndex, setParshaCardIndex] = useState(0);
+  const [parshaCardIndex, setParshaCardIndex] = useState(-2);
 
   // --- Multiplayer Parsha Card Sync ---
   useEffect(() => {
@@ -3429,96 +3775,6 @@ function App() {
   return (
     <div style={styles.container}>
       <h1>TORAHPOLY</h1>
-      {/* TEST BUTTONS: Move to special squares */}
-      {gameStarted && (
-        <div style={{ marginBottom: 10 }}>
-          <button
-            style={{ ...styles.button, backgroundColor: '#28a745', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (16 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(16), 350);
-            }}
-          >
-            TEST: Move to Tzedakah (16)
-          </button>
-          <button
-            style={{ ...styles.button, backgroundColor: '#ffc107', color: '#333', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (20 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(20), 350);
-            }}
-          >
-            TEST: Move to Collect (20)
-          </button>
-          <button
-            style={{ ...styles.button, backgroundColor: '#e53935', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (21 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(21), 350);
-            }}
-          >
-            TEST: Move to Yoseph Pit (21)
-          </button>
-          <button
-            style={{ ...styles.button, backgroundColor: '#6a1b9a', color: '#fff', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (31 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(31), 350);
-            }}
-          >
-            TEST: Move to Yeshiva (31)
-          </button>
-          <button
-            style={{ ...styles.button, backgroundColor: '#8bc34a', color: '#222', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (17 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(17), 350);
-            }}
-          >
-            TEST: Move to Yeshiva (17)
-          </button>
-          <button
-            style={{ ...styles.button, backgroundColor: '#00bcd4', color: '#fff', marginRight: 8 }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (10 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(10), 350);
-            }}
-          >
-            TEST: Move to 10
-          </button>
-          {/* MANNA BUTTON: Move to Manna Foods (25) */}
-          <button
-            style={{ ...styles.button, backgroundColor: '#ffd600', color: '#222', marginRight: 8, border: '2px solid #bdb76b' }}
-            onClick={() => {
-              const currentPos = players[currentPlayerIndex]?.position || 0;
-              let steps = (25 - currentPos + boardPositions.length) % boardPositions.length;
-              if (steps === 0) steps = boardPositions.length;
-              movePlayerBy(steps);
-              setTimeout(() => handleSpecialSquare(25), 350);
-            }}
-          >
-            MANNA: Go to Manna Foods (25)
-          </button>
-        </div>
-      )}
       {/* ...existing code... */}
       <YeshivaModal
         open={showYeshivaModal}
@@ -3531,7 +3787,7 @@ function App() {
       />
       {!gameStarted ? (
         <>
-          {lobbyPlayers.length < maxPlayers && (
+          {!multiplayer.enabled && lobbyPlayers.length < maxPlayers && (
             <div style={styles.inputRow}>
               <input type="text" placeholder="Player Name" value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} style={styles.input} />
               <select
@@ -3550,6 +3806,28 @@ function App() {
                 {availableColors.filter(c => !lobbyPlayers.some(p => p.color && p.color === c)).map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               <button onClick={addPlayer} style={styles.button}>Add Player</button>
+            </div>
+          )}
+          {multiplayer.enabled && (
+            <div style={styles.inputRow}>
+              <span style={{ marginRight: 8, fontWeight: 600 }}>Choose Color:</span>
+              <select
+                value={(players.find(p => p.name === multiplayer.playerName)?.color) || ""}
+                onChange={async (e) => {
+                  const color = e.target.value;
+                  if (!color) return;
+                  setPlayers(prev => prev.map(p => p.name === multiplayer.playerName ? { ...p, color } : p));
+                  if (multiplayer.gameId && multiplayer.playerName) {
+                    await setPlayerColorInFirestore(multiplayer.gameId, multiplayer.playerName, color);
+                  }
+                }}
+                style={styles.input}
+              >
+                <option value="">Choose Color</option>
+                {availableColors
+                  .filter(c => !lobbyPlayers.some(p => p.name !== multiplayer.playerName && p.color === c))
+                  .map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
           )}
           <h2>Joined Players ({lobbyPlayers.length}/{maxPlayers})</h2>
@@ -3592,6 +3870,11 @@ function App() {
             {/* TorahPoly Board Buttons overlay - does not affect any other logic */}
             <TorahPolyBoardButtons
               startQA={async (card) => {
+                const isTurnPlayer = !multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name;
+                if (!isTurnPlayer) {
+                  alert('Only the current turn player can pick cards.');
+                  return;
+                }
                 if (card.name === "Mazal") {
                   if (multiplayer.enabled && multiplayer.gameId) {
                     const nextIndex = (mazalCardIndex + 1) % mazalCards.length;
@@ -3599,11 +3882,13 @@ function App() {
                     const gameRef = doc(db, "games", multiplayer.gameId);
                     await updateDoc(gameRef, {
                       'gameState.mazalCardIndex': nextIndex,
-                      'gameState.showMazalModal': true
+                      'gameState.showMazalModal': true,
+                      'gameState.mazalModalState': { showReward: false, claimed: false, claimedBy: null }
                     });
                   } else {
                     setMazalCardIndex((prev) => (prev + 1) % mazalCards.length);
                     setShowMazalModal(true);
+                    setMazalModalState({ showReward: false, claimed: false, claimedBy: null });
                   }
                 } else if (card.name === "Har HaBayit") {
                   if (multiplayer.enabled && multiplayer.gameId) {
@@ -3612,7 +3897,8 @@ function App() {
                     const gameRef = doc(db, "games", multiplayer.gameId);
                     await updateDoc(gameRef, {
                       'gameState.harHaBayitCardIndex': nextIndex,
-                      'gameState.showHarHaBayitModal': true
+                      'gameState.showHarHaBayitModal': true,
+                      'gameState.harHaBayitModalState': { shownAnswers: [], claimedQuestions: [] }
                     });
                   } else {
                     setHarHaBayitCardIndex((prev) => prev + 1);
@@ -3625,23 +3911,24 @@ function App() {
                     const gameRef = doc(db, "games", multiplayer.gameId);
                     await updateDoc(gameRef, {
                       'gameState.tzadikCardIndex': nextIndex,
-                      'gameState.showTzadikModal': true
+                      'gameState.showTzadikModal': true,
+                      'gameState.tzadikModalState': { shownAnswers: [], claimedQuestions: [] }
                     });
                   } else {
                     setTzadikCardIndex((prev) => prev + 1);
                     setShowTzadikModal(true);
                   }
                 } else if (card.name && card.name.startsWith("Parsha")) {
+                  const nextParshaIndex = Math.max(0, parshaCardIndex + 2);
                   if (multiplayer.enabled && multiplayer.gameId) {
-                    const nextIndex = (parshaCardIndex + 1); // You may want to use your parsha card logic
                     const { doc, updateDoc } = await import('firebase/firestore');
                     const gameRef = doc(db, "games", multiplayer.gameId);
                     await updateDoc(gameRef, {
-                      'gameState.parshaCardIndex': nextIndex,
+                      'gameState.parshaCardIndex': nextParshaIndex,
                       'gameState.showParshaModal': true
                     });
                   } else {
-                    setParshaCardIndex((prev) => prev + 1); // Or your own logic
+                    setParshaCardIndex(nextParshaIndex);
                     setShowParshaModal(true);
                   }
                 } else {
@@ -3649,6 +3936,11 @@ function App() {
                 }
               }}
               onShuffleParsha={async () => {
+                const isTurnPlayer = !multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name;
+                if (!isTurnPlayer) {
+                  alert('Only the current turn player can control Parsha cards.');
+                  return;
+                }
                 if (multiplayer.enabled && multiplayer.gameId) {
                   const nextIndex = (parshaCardIndex + 1); // Or your shuffle logic
                   const { doc, updateDoc } = await import('firebase/firestore');
@@ -3663,6 +3955,11 @@ function App() {
                 }
               }}
               onReturnParsha={async () => {
+                const isTurnPlayer = !multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name;
+                if (!isTurnPlayer) {
+                  alert('Only the current turn player can control Parsha cards.');
+                  return;
+                }
                 if (multiplayer.enabled && multiplayer.gameId) {
                   const nextIndex = (parshaCardIndex + 1); // Or your return logic
                   const { doc, updateDoc } = await import('firebase/firestore');
@@ -3683,33 +3980,52 @@ function App() {
                       <ParshaCardModal
                         open={showParshaModal}
                         onClose={async () => {
+                          if (multiplayer.enabled && multiplayer.playerName !== players[currentPlayerIndex]?.name) return;
                           setShowParshaModal(false);
                           if (multiplayer.enabled && multiplayer.gameId) {
                             const { doc, updateDoc } = await import('firebase/firestore');
                             const gameRef = doc(db, "games", multiplayer.gameId);
-                            await updateDoc(gameRef, { 'gameState.showParshaModal': false });
+                            await updateDoc(gameRef, {
+                              'gameState.showParshaModal': false,
+                              'gameState.parshaModalState': {
+                                shownAnswers: [],
+                                approvedQuestions: [],
+                                claimedQuestions: []
+                              }
+                            });
                           }
                         }}
                         currentPlayer={players[currentPlayerIndex]}
                         setPlayers={setPlayers}
                         cardIndex={parshaCardIndex}
                         setCardIndex={setParshaCardIndex}
+                        multiplayerEnabled={multiplayer.enabled}
+                        multiplayerGameId={multiplayer.gameId}
+                        canClaimParshaZchut={!multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name}
+                        canControlParsha={!multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name}
                       />
                 {/* Tzadik Card Modal */}
                 <TzadikCardModal
                   open={showTzadikModal}
                   onClose={async () => {
+                    if (multiplayer.enabled && multiplayer.playerName !== players[currentPlayerIndex]?.name) return;
                     setShowTzadikModal(false);
                     if (multiplayer.enabled && multiplayer.gameId) {
                       const { doc, updateDoc } = await import('firebase/firestore');
                       const gameRef = doc(db, "games", multiplayer.gameId);
-                      await updateDoc(gameRef, { 'gameState.showTzadikModal': false });
+                      await updateDoc(gameRef, {
+                        'gameState.showTzadikModal': false,
+                        'gameState.tzadikModalState': { shownAnswers: [], claimedQuestions: [] }
+                      });
                     }
                   }}
                   currentPlayer={players[currentPlayerIndex]}
                   setPlayers={setPlayers}
                   cardIndex={tzadikCardIndex}
                   setCardIndex={setTzadikCardIndex}
+                  canControlTzadik={!multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name}
+                  multiplayerEnabled={multiplayer.enabled}
+                  multiplayerGameId={multiplayer.gameId}
                 />
           </div>
 
@@ -3885,18 +4201,54 @@ function App() {
       <MazalCardModal
         open={showMazalModal}
         onClose={async () => {
+          if (multiplayer.enabled && multiplayer.playerName !== players[currentPlayerIndex]?.name) return;
           setShowMazalModal(false);
+          setMazalModalState({ showReward: false, claimed: false, claimedBy: null });
           if (multiplayer.enabled && multiplayer.gameId) {
             const { doc, updateDoc } = await import('firebase/firestore');
             const gameRef = doc(db, "games", multiplayer.gameId);
-            await updateDoc(gameRef, { 'gameState.showMazalModal': false });
+            await updateDoc(gameRef, {
+              'gameState.showMazalModal': false,
+              'gameState.mazalModalState': { showReward: false, claimed: false, claimedBy: null }
+            });
           }
         }}
         currentPlayer={players[currentPlayerIndex]}
         setPlayers={setPlayers}
+        boardEvents={boardEvents}
+        setBoardEvents={setBoardEvents}
         mazalCard={mazalCards[mazalCardIndex]}
+        showReward={!!mazalModalState.showReward}
+        onShowReward={async () => {
+          if (multiplayer.enabled && multiplayer.playerName !== players[currentPlayerIndex]?.name) return;
+          const nextState = { ...mazalModalState, showReward: true };
+          setMazalModalState(nextState);
+          if (multiplayer.enabled && multiplayer.gameId) {
+            await syncMazalModalState(nextState);
+          }
+        }}
+        mazalClaimed={!!mazalModalState.claimed}
+        mazalClaimedBy={mazalModalState.claimedBy}
+        canClaimMazal={!multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name}
+        canCloseMazal={!multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name}
+        onClaimed={async () => {
+          if (multiplayer.enabled && multiplayer.playerName !== players[currentPlayerIndex]?.name) return;
+          const claimingPlayerName = players[currentPlayerIndex]?.name || null;
+          const nextState = {
+            showReward: true,
+            claimed: true,
+            claimedBy: claimingPlayerName,
+          };
+          setMazalModalState(nextState);
+          if (multiplayer.enabled && multiplayer.gameId) {
+            await syncMazalModalState(nextState);
+          }
+        }}
         onAccept={async () => {
+          if (multiplayer.enabled && multiplayer.playerName !== players[currentPlayerIndex]?.name) return;
+          if (mazalModalState.claimed) return;
           const card = mazalCards[mazalCardIndex];
+          const claimingPlayerName = players[currentPlayerIndex]?.name || null;
           if (card.reward) {
             if (card.rewardType === "moneyAndZchut") {
               setPlayers((prevPlayers) =>
@@ -3956,11 +4308,14 @@ function App() {
             }
             alert(`${players[currentPlayerIndex].name} paid ${card.penaltyType === "zchut" ? card.penalty + ' Zchut' : '$' + card.penalty} as Mazal penalty!`);
           }
-          setShowMazalModal(false);
+          const nextState = {
+            showReward: true,
+            claimed: true,
+            claimedBy: claimingPlayerName,
+          };
+          setMazalModalState(nextState);
           if (multiplayer.enabled && multiplayer.gameId) {
-            const { doc, updateDoc } = await import('firebase/firestore');
-            const gameRef = doc(db, "games", multiplayer.gameId);
-            await updateDoc(gameRef, { 'gameState.showMazalModal': false });
+            await syncMazalModalState(nextState);
           }
         }}
       />
@@ -3969,17 +4324,24 @@ function App() {
       <HarHaBayitCardModal
         open={showHarHaBayitModal}
         onClose={async () => {
+          if (multiplayer.enabled && multiplayer.playerName !== players[currentPlayerIndex]?.name) return;
           setShowHarHaBayitModal(false);
           if (multiplayer.enabled && multiplayer.gameId) {
             const { doc, updateDoc } = await import('firebase/firestore');
             const gameRef = doc(db, "games", multiplayer.gameId);
-            await updateDoc(gameRef, { 'gameState.showHarHaBayitModal': false });
+            await updateDoc(gameRef, {
+              'gameState.showHarHaBayitModal': false,
+              'gameState.harHaBayitModalState': { shownAnswers: [], claimedQuestions: [] }
+            });
           }
         }}
         currentPlayer={players[currentPlayerIndex]}
         setPlayers={setPlayers}
         cardIndex={harHaBayitCardIndex}
         setCardIndex={setHarHaBayitCardIndex}
+        canControlHarHaBayit={!multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name}
+        multiplayerEnabled={multiplayer.enabled}
+        multiplayerGameId={multiplayer.gameId}
       />
 
       {/* Player Panel Modal */}
@@ -4006,6 +4368,10 @@ const modalStyles = {
 };
 
 export default App;
+
+
+
+
 
 
 

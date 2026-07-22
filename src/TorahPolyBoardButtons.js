@@ -270,12 +270,6 @@ const mazalCards = [
                 rewardType: "money",
                 buttonText: "Collect $1000",
               },
-            {
-              name: "Mazal",
-              text: `There is a huge Aliyah boom. The government is giving subsidies to builders. Get one free house on the property of your choice. You may also get one free hotel if you already have three houses.`,
-              special: "aliyahBoom",
-              buttonText: "Choose a property for a free house or hotel",
-            },
           {
             name: "Mazal",
             text: `“Every person should have two pockets so he can reach into one or the other, according to his needs. In one pocket, carry a note that says ‘Bishvili Nivrat Ha’Olam - for my sake, the world was created.’  In the other pocket, a note that says, ‘Anochi Afar Va’Efer - I am dust and ashes.” – Rabbi Simcha Bunim of Przysucha, 19th century CE.\n\nYou used your unique talents and abilities to acheive great things but remained humble and modest.`,
@@ -424,6 +418,12 @@ const mazalCards = [
     reward: 2000,
     rewardType: "zchut",
     buttonText: "Collect 2000 Zchut (Olam Haba Fund)",
+  },
+  {
+    name: "Mazal",
+    text: `There is a huge Aliyah boom. The government is giving subsidies to builders. Get one free house on the property of your choice. You may also get one free hotel if you already have three houses.`,
+    special: "aliyahBoom",
+    buttonText: "Choose a property for a free house or hotel",
   },
 ];
 

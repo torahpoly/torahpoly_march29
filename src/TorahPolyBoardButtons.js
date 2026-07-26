@@ -282,6 +282,7 @@ const mazalCards = [
           text: `The king said to the glutton and the envious person, "I will grant whatever you wish to whoever chooses first, provided the second gets double." The glutton wanted everything so he did not want to go first. Finally the envious person said I will go first. Pluck out my eye. Look what your envy cost you.`,
           penalty: 2000,
           penaltyType: "zchut",
+          target: "tzedakah",
           buttonText: "Pay 2000 Zchut (Olam Haba Fund)",
         },
       {
@@ -310,6 +311,7 @@ const mazalCards = [
     text: `You did a terrible sin deserving of death. Hashem measures judgement with kindness. The Talmud tells us that not being married or not having children or being poor are also like death, so instead of the death penalty, in His kindness, Hashem made you poor.`,
     penalty: 1000,
     penaltyType: "money",
+    target: "tzedakah",
     buttonText: "Give the bank $1000",
   },
   {
@@ -317,6 +319,7 @@ const mazalCards = [
     text: `The King sent you to deliver a treasure to another Kingdom and warned you not to take any bets. As you were returning the other King asked why you had a fake hump on your back. You told him it was not fake you were a hunchback. The King said it must be fake and if he is proven wrong he will pay you 1 million dollars. You thought to yourself how can I go wrong? I will win the bet and give the million dollars to my King. You took off your shirt and won the bet. When you returned to your Kingdom you rushed to the King and offered this surprise gift to him in a proud display of loyalty. The King inquired how you acquired this gift? You explained the silly bet the other King made. 'You idiot' exclaimed the King. ' I bet him 2 million dollars the you would not make any bets!!`,
     penalty: 1000,
     penaltyType: "money",
+    target: "tzedakah",
     buttonText: "Give the bank $1000",
   },
                     {

@@ -2886,6 +2886,41 @@ function PlayerPanelModal({ player, onClose, boardEvents }) {
   );
 }
 
+function RulesModal({ open, onClose }) {
+  if (!open) return null;
+
+  return (
+    <div style={modalStyles.overlay}>
+      <div style={{ ...modalStyles.modal, maxWidth: 900, width: '92%', maxHeight: '82vh', overflowY: 'auto', textAlign: 'left' }}>
+        <h2 style={{ textAlign: 'center', marginTop: 0 }}>TORAHPOLY</h2>
+        <h3 style={{ textAlign: 'center', marginTop: 0 }}>A GAME OF LIFE</h3>
+        <h3 style={{ textAlign: 'center' }}>Rules</h3>
+
+        <ol style={{ lineHeight: 1.6, paddingLeft: 20 }}>
+          <li>Each player starts with 2000 Torahpoly money and 1000 Zchut (merit) money.</li>
+          <li>The game ends when players run out of Torahpoly money, but there are other ways as well.</li>
+          <li>The winner can decide to give 20% of his capital to the loser to keep playing. The bank will pay double that amount in zchut money to the winner and the game can continue.</li>
+          <li>If the zchut money of the loser is more than the capital of the winner, then he is proclaimed winner instead.</li>
+          <li>When you land on a Yeshiva nothing happens. However, if you decide to miss a turn and stay in Yeshiva you earn money and zchut. You can stay in Yeshiva for up to three turns.</li>
+          <li>Ephrayim Hilltops, home of the hilltop youth, is the only property that does not require a set to buy a house. If the owner lands there they can buy as many additions as they like.</li>
+          <li>Players earn 50 Zchut for each correct Torah answer. If they answer all three correct, they may pick a Har Habyit card. If they answer both Har Habayit questions they may pick a Tzadik card.</li>
+          <li>Manna Foods is a gift that keeps giving. Cover the cost of a Manna Foods banquet and pay whatever price you like. The money goes to the Tzedaka fund. The next player that lands there returns your expense. Each additional player that lands there pays you whatever price you had set.</li>
+          <li>All properties need a set before buying acquisitions. Once you have a set, acquisitions may be bought at any time. Ephrayim Hilltops is an exception. You may freely expand your settlement at any time. Note: If players wish to have a quicker game they can bypass this rule and allow all players to buy properties whenever it is their turn.</li>
+          <li>Players begin from the Parnassah square and receive $200 each time they pass it. If they land on it, Bubbie sends them an extra $200.</li>
+        </ol>
+
+        <p style={{ marginTop: 18, textAlign: 'center', fontStyle: 'italic' }}>
+          Torahpoly was created by Ron (Yoseph Feivel) Wiseman - Torahpoly.com
+        </p>
+
+        <div style={{ textAlign: 'center' }}>
+          <button style={modalStyles.button} onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 
 // --- Main App ---
@@ -3056,6 +3091,9 @@ function App() {
   const [boardPositions, setBoardPositions] = useState(defaultBoardPositions);
   const [diceRolls, setDiceRolls] = useState([]);
   const [showPanel, setShowPanel] = useState(null);
+  const [showRulesModal, setShowRulesModal] = useState(false);
+  const [showRulesMenu, setShowRulesMenu] = useState(false);
+  const [boardRotationDeg, setBoardRotationDeg] = useState(0);
   // Rescue modal state
   const [showRescueModal, setShowRescueModal] = useState(false);
   const [rescueInfo, setRescueInfo] = useState({ player: null, rent: 0 });
@@ -3410,15 +3448,75 @@ function App() {
     }
   };
 
+  const rulesLauncher = (
+    <div style={styles.rulesLauncherWrap}>
+      <button
+        style={styles.hamburgerButton}
+        onClick={() => setShowRulesMenu((prev) => !prev)}
+        aria-label="Open menu"
+        title="Menu"
+      >
+        <span style={styles.hamburgerLine}></span>
+        <span style={styles.hamburgerLine}></span>
+        <span style={styles.hamburgerLine}></span>
+      </button>
+
+      {showRulesMenu && (
+        <div style={styles.rulesMiniMenu}>
+          <button
+            style={styles.rulesMenuItem}
+            onClick={() => {
+              setShowRulesModal(true);
+              setShowRulesMenu(false);
+            }}
+            aria-label="Open Rules"
+            title="Rules"
+          >
+            <svg viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">
+              <polygon points="24,6 29,12 32,8 35,12 40,6 40,14 24,14" fill="#e0b74f" stroke="#8b6b2e" strokeWidth="1.5" />
+              <rect x="18" y="12" width="28" height="42" rx="3" fill="#fff9e8" stroke="#8b6b2e" strokeWidth="2" />
+              <path d="M18 18 C15 20, 15 24, 18 26" fill="none" stroke="#d7b87a" strokeWidth="2" />
+              <path d="M46 18 C49 20, 49 24, 46 26" fill="none" stroke="#d7b87a" strokeWidth="2" />
+              <rect x="10" y="14" width="6" height="38" rx="3" fill="#c99a4a" stroke="#8b6b2e" strokeWidth="2" />
+              <rect x="48" y="14" width="6" height="38" rx="3" fill="#c99a4a" stroke="#8b6b2e" strokeWidth="2" />
+              <circle cx="13" cy="13" r="2.8" fill="#c99a4a" stroke="#8b6b2e" strokeWidth="2" />
+              <circle cx="13" cy="53" r="2.8" fill="#c99a4a" stroke="#8b6b2e" strokeWidth="2" />
+              <circle cx="51" cy="13" r="2.8" fill="#c99a4a" stroke="#8b6b2e" strokeWidth="2" />
+              <circle cx="51" cy="53" r="2.8" fill="#c99a4a" stroke="#8b6b2e" strokeWidth="2" />
+              <line x1="23" y1="22" x2="41" y2="22" stroke="#8b6b2e" strokeWidth="2" />
+              <line x1="23" y1="30" x2="41" y2="30" stroke="#8b6b2e" strokeWidth="2" />
+              <line x1="23" y1="38" x2="41" y2="38" stroke="#8b6b2e" strokeWidth="2" />
+              <line x1="23" y1="46" x2="36" y2="46" stroke="#8b6b2e" strokeWidth="2" />
+            </svg>
+            <span style={styles.rulesLabel}>Rules</span>
+          </button>
+          <button
+            style={styles.rulesMenuItem}
+            onClick={() => setBoardRotationDeg((prev) => (prev + 90) % 360)}
+            aria-label="Rotate Board"
+            title="Rotate Board"
+          >
+            <span style={styles.rotateIcon}>⟳</span>
+            <span style={styles.rulesLabel}>Rotate Board</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
 
   // --- Multiplayer Entry UI ---
   if (!multiplayer.enabled) {
     return (
-      <MultiplayerEntry
-        onJoin={(gameId, playerName) => {
-          setMultiplayer({ enabled: true, gameId, playerName });
-        }}
-      />
+      <>
+        {rulesLauncher}
+        <MultiplayerEntry
+          onJoin={(gameId, playerName) => {
+            setMultiplayer({ enabled: true, gameId, playerName });
+          }}
+        />
+        <RulesModal open={showRulesModal} onClose={() => setShowRulesModal(false)} />
+      </>
     );
   }
 
@@ -3428,6 +3526,7 @@ function App() {
 
   return (
     <div style={styles.container}>
+      {rulesLauncher}
       <h1>TORAHPOLY</h1>
       {/* ...existing code... */}
       <YeshivaModal
@@ -3487,7 +3586,7 @@ function App() {
           </div>
 
           {/* Game Board */}
-          <div style={{ position: "relative", display: "inline-block", marginBottom: 20 }}>
+          <div style={{ position: "relative", display: "inline-block", marginBottom: 20, transform: `rotate(${boardRotationDeg}deg)`, transformOrigin: "center center", transition: "transform 220ms ease" }}>
             <img src={boardImage} alt="Game Board" style={{ width: boardWidth, maxWidth: "95vw", height: "auto", border: "2px solid #333", borderRadius: 12, display: "block" }} />
             {players.map((player, idx) => {
               const pos = boardPositions[player.position % boardPositions.length];
@@ -3809,55 +3908,109 @@ function App() {
           const card = mazalCards[mazalCardIndex];
           if (card.reward) {
             if (card.rewardType === "moneyAndZchut") {
-              setPlayers((prevPlayers) =>
-                prevPlayers.map((p) => {
-                  if (p.index === players[currentPlayerIndex].index) {
-                    const addMoney = typeof card.reward.money === 'number' ? card.reward.money : 0;
-                    const addZchut = typeof card.reward.zchut === 'number' ? card.reward.zchut : 0;
-                    if (card.text && card.text.includes('Return to rebuild Gush Katif')) {
-                      return {
-                        ...p,
-                        money: (typeof p.money === 'number' ? p.money : 0) + addMoney,
-                        zchutPoints: (p.zchutPoints || 0) + addZchut,
-                        position: 11,
-                      };
-                    }
+              const rewardedPlayers = players.map((p, idx) => {
+                if (idx === currentPlayerIndex) {
+                  const addMoney = typeof card.reward.money === 'number' ? card.reward.money : 0;
+                  const addZchut = typeof card.reward.zchut === 'number' ? card.reward.zchut : 0;
+                  const currentMoney = typeof p.money === 'number'
+                    ? p.money
+                    : (p.money && typeof p.money.money === 'number' ? p.money.money : 0);
+                  if (card.text && card.text.includes('Return to rebuild Gush Katif')) {
                     return {
                       ...p,
-                      money: (typeof p.money === 'number' ? p.money : 0) + addMoney,
+                      money: currentMoney + addMoney,
                       zchutPoints: (p.zchutPoints || 0) + addZchut,
+                      position: 11,
                     };
                   }
-                  return p;
-                })
-              );
+                  return {
+                    ...p,
+                    money: currentMoney + addMoney,
+                    zchutPoints: (p.zchutPoints || 0) + addZchut,
+                  };
+                }
+                return p;
+              });
+              setPlayers(rewardedPlayers);
+
+              if (multiplayer.enabled && multiplayer.gameId) {
+                const { doc, updateDoc } = await import('firebase/firestore');
+                const gameRef = doc(db, "games", multiplayer.gameId);
+                await updateDoc(gameRef, {
+                  'gameState.players': rewardedPlayers.map(p => ({
+                    name: p.name,
+                    position: typeof p.position === 'number' ? p.position : 0,
+                    money: typeof p.money === 'number' ? p.money : (p.money && typeof p.money.money === 'number' ? p.money.money : 0),
+                    zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 0,
+                    missTurn: !!p.missTurn,
+                    color: p.color || null
+                  }))
+                });
+              }
               alert(`${players[currentPlayerIndex].name} received $${card.reward.money} and ${card.reward.zchut} Zchut Mazal reward!`);
             } else {
-              setPlayers((prevPlayers) =>
-                prevPlayers.map((p) =>
-                  p.index === players[currentPlayerIndex].index
-                    ? card.rewardType === "zchut"
-                      ? { ...p, zchutPoints: (p.zchutPoints || 0) + card.reward }
-                      : { ...p, money: (typeof p.money === 'number' ? p.money : 0) + card.reward }
-                    : p
-                )
-              );
+              const rewardedPlayers = players.map((p, idx) => {
+                if (idx !== currentPlayerIndex) return p;
+                if (card.rewardType === "zchut") {
+                  return { ...p, zchutPoints: (p.zchutPoints || 0) + card.reward };
+                }
+                const currentMoney = typeof p.money === 'number'
+                  ? p.money
+                  : (p.money && typeof p.money.money === 'number' ? p.money.money : 0);
+                return { ...p, money: currentMoney + card.reward };
+              });
+              setPlayers(rewardedPlayers);
+
+              if (multiplayer.enabled && multiplayer.gameId) {
+                const { doc, updateDoc } = await import('firebase/firestore');
+                const gameRef = doc(db, "games", multiplayer.gameId);
+                await updateDoc(gameRef, {
+                  'gameState.players': rewardedPlayers.map(p => ({
+                    name: p.name,
+                    position: typeof p.position === 'number' ? p.position : 0,
+                    money: typeof p.money === 'number' ? p.money : (p.money && typeof p.money.money === 'number' ? p.money.money : 0),
+                    zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 0,
+                    missTurn: !!p.missTurn,
+                    color: p.color || null
+                  }))
+                });
+              }
               alert(`${players[currentPlayerIndex].name} received ${card.rewardType === "zchut" ? card.reward + ' Zchut' : '$' + card.reward} Mazal reward!`);
             }
           } else if (card.penalty) {
-            setPlayers((prevPlayers) =>
-              prevPlayers.map((p) => {
-                if (p.index === players[currentPlayerIndex].index) {
-                  if (card.penaltyType === "zchut") {
-                    return { ...p, zchutPoints: Math.max(0, (p.zchutPoints || 0) - card.penalty) };
-                  } else {
-                    return { ...p, money: Math.max(0, p.money - card.penalty) };
-                  }
+            const penalizedPlayers = players.map((p, idx) => {
+              if (idx === currentPlayerIndex) {
+                if (card.penaltyType === "zchut") {
+                  return { ...p, zchutPoints: Math.max(0, (p.zchutPoints || 0) - card.penalty) };
                 }
-                return p;
-              })
-            );
-            if (card.target === "tzedakah") {
+                const currentMoney = typeof p.money === 'number'
+                  ? p.money
+                  : (p.money && typeof p.money.money === 'number' ? p.money.money : 0);
+                return { ...p, money: Math.max(0, currentMoney - card.penalty) };
+              }
+              return p;
+            });
+            setPlayers(penalizedPlayers);
+
+            if (multiplayer.enabled && multiplayer.gameId) {
+              const { doc, updateDoc } = await import('firebase/firestore');
+              const gameRef = doc(db, "games", multiplayer.gameId);
+              await updateDoc(gameRef, {
+                'gameState.players': penalizedPlayers.map(p => ({
+                  name: p.name,
+                  position: typeof p.position === 'number' ? p.position : 0,
+                  money: typeof p.money === 'number' ? p.money : (p.money && typeof p.money.money === 'number' ? p.money.money : 0),
+                  zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 0,
+                  missTurn: !!p.missTurn,
+                  color: p.color || null
+                }))
+              });
+            }
+            if (
+              card.target === "tzedakah" ||
+              card.buttonText === "Give the bank $1000" ||
+              card.buttonText === "Pay 2000 Zchut (Olam Haba Fund)"
+            ) {
               if (card.penaltyType === "zchut") {
                 setZchutFundAmount((prev) => prev + card.penalty);
               } else {
@@ -3896,6 +4049,8 @@ function App() {
       {showPanel !== null && (
         <PlayerPanelModal player={players[showPanel]} onClose={() => setShowPanel(null)} boardEvents={boardEvents} />
       )}
+
+      <RulesModal open={showRulesModal} onClose={() => setShowRulesModal(false)} />
     </div>
   );
 }
@@ -3904,6 +4059,13 @@ function App() {
 const styles = { 
   container: { fontFamily: "Arial, sans-serif", padding: 20, backgroundColor: "#f0f2f5", minHeight: "100vh", textAlign: "center" },
   button: { backgroundColor: "#007bff", color: "white", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 16, cursor: "pointer", margin: "5px" },
+  rulesLauncherWrap: { position: "fixed", top: 12, right: 12, zIndex: 1500, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 },
+  hamburgerButton: { width: 42, height: 34, backgroundColor: "#5f6773", border: "2px solid #d4d7dd", borderRadius: 8, cursor: "pointer", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 4, boxShadow: "0 3px 10px rgba(0,0,0,0.28)" },
+  hamburgerLine: { width: 18, height: 2, backgroundColor: "#f4f4f4", borderRadius: 2, display: "block" },
+  rulesMiniMenu: { backgroundColor: "#ffffff", border: "1px solid #d9d9d9", borderRadius: 10, padding: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.18)" },
+  rulesMenuItem: { backgroundColor: "#6b7280", color: "#fff", border: "1px solid #d4d7dd", borderRadius: 8, padding: "6px 8px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", width: "100%", marginTop: 6 },
+  rotateIcon: { fontSize: 14, fontWeight: 700, lineHeight: 1 },
+  rulesLabel: { fontSize: 13, fontWeight: 700, lineHeight: 1 },
   input: { fontSize: 16, padding: "5px 10px", borderRadius: 4, border: "1px solid #ccc" },
   inputRow: { display: "flex", justifyContent: "center", gap: 10, marginBottom: 20 }
 };
@@ -3916,10 +4078,4 @@ const modalStyles = {
 };
 
 export default App;
-
-
-
-
-
-
 

@@ -1933,20 +1933,33 @@ function ParshaCardModal({
         <h2>{currentCard.title}</h2>
         {currentCard.type === 'deck' ? (
           <div style={{ textAlign: 'center', margin: '32px 0' }}>
-            <img
-              src={currentCard.image}
-              alt="Parsha Deck"
+            <div
               style={{
-                maxWidth: '650px',
                 width: '95%',
+                maxWidth: '650px',
                 maxHeight: '480px',
-                height: 'auto',
                 margin: '0 auto 32px auto',
                 borderRadius: 16,
                 boxShadow: '0 4px 24px #aaa',
-                display: 'block',
+                overflow: 'hidden',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#fff'
               }}
-            />
+            >
+              <img
+                src={currentCard.image}
+                alt="Parsha Deck"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  maxHeight: '480px',
+                  objectFit: 'contain',
+                  display: 'block'
+                }}
+              />
+            </div>
           </div>
         ) : (
           <>

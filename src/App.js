@@ -2663,7 +2663,7 @@ function RescueModal({ open, onClose, currentPlayer, rentAmount, players, setPla
 }
 
 // --- Card Modal ---
-function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, updatePlayers, onRescue, boardEvents, setBoardEvents }) {
+function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, updatePlayers, onRescue, boardEvents, setBoardEvents, canControlPropertyActions }) {
     // Helper: Can buy house?
     const canBuyHouse = () => {
       return card.ownerIndex === currentPlayer.index && !card.hotel && card.houses < 4 && currentPlayer.money >= card.buildCost.house;
@@ -2674,6 +2674,10 @@ function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, 
     };
 
     const handleBuyHouse = () => {
+      if (!canControlPropertyActions) {
+        alert('Only Turn Player Can Buy');
+        return;
+      }
       if (!canBuyHouse()) {
         alert('Cannot buy house. Make sure you own the property, have less than 4 houses, no hotel, and enough money.');
         return;
@@ -2692,6 +2696,10 @@ function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, 
     };
 
     const handleBuyHotel = () => {
+      if (!canControlPropertyActions) {
+        alert('Only Turn Player Can Buy');
+        return;
+      }
       if (!canBuyHotel()) {
         alert('Cannot buy hotel. You need 4 houses, no hotel, and enough money.');
         return;
@@ -2713,6 +2721,10 @@ function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, 
 
     // Strict local-backup logic: only allow buy if property is unowned
     const handleBuyProperty = async () => {
+      if (!canControlPropertyActions) {
+        alert('Only Turn Player Can Buy');
+        return;
+      }
       // Always re-fetch property state from Firestore before allowing a buy
       if (window.multiplayer?.enabled && window.multiplayer?.gameId) {
         const { runTransaction, doc, getDoc } = await import("firebase/firestore");
@@ -2791,6 +2803,10 @@ function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, 
     };
 
   const handlePayRent = async () => {
+    if (!canControlPropertyActions) {
+      alert('Only Turn Player Can Pay');
+      return;
+    }
     // Always use latest property state from boardEvents
     let latestCard = card;
     if (typeof boardEvents === 'object') {
@@ -2869,6 +2885,10 @@ function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, 
   };
 
     const handleTrade = () => {
+      if (!canControlPropertyActions) {
+        alert('Only Turn Player Can Trade');
+        return;
+      }
       const targetPlayerIndex = prompt("Enter the player number you want to trade with:");
       const targetPlayer = players.find(p => p.index === parseInt(targetPlayerIndex));
       if (!targetPlayer) { alert("Invalid player!"); return; }
@@ -2938,6 +2958,10 @@ function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, 
                 return (
                   <button style={{ ...modalStyles.button, backgroundColor: "green" }}
                     onClick={async () => {
+                      if (!canControlPropertyActions) {
+                        alert('Only Turn Player Can Buy');
+                        return;
+                      }
                       if (window.multiplayer?.enabled && window.multiplayer?.gameId) {
                         // Firestore transaction for atomic buy
                         const { runTransaction, doc } = await import("firebase/firestore");
@@ -2986,7 +3010,7 @@ function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, 
                         handleBuyProperty();
                       }
                     }}
-                  >Buy Property</button>
+                  >{canControlPropertyActions ? 'Buy Property' : 'Only Turn Player Can Buy'}</button>
                 );
               }
               // Only show Pay Rent if property is owned by someone else
@@ -2995,6 +3019,10 @@ function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, 
                   <>
                     <button style={{ ...modalStyles.button, backgroundColor: "orange" }}
                       onClick={async () => {
+                        if (!canControlPropertyActions) {
+                          alert('Only Turn Player Can Pay');
+                          return;
+                        }
                         if (window.multiplayer?.enabled && window.multiplayer?.gameId) {
                           // Firestore transaction for atomic rent
                           const { runTransaction, doc } = await import("firebase/firestore");
@@ -3050,8 +3078,8 @@ function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, 
                           handlePayRent();
                         }
                       }}
-                    >Pay Rent</button>
-                    <button style={{ ...modalStyles.button, backgroundColor: "purple" }} onClick={handleTrade}>Trade Property</button>
+                    >{canControlPropertyActions ? 'Pay Rent' : 'Only Turn Player Can Pay'}</button>
+                    <button style={{ ...modalStyles.button, backgroundColor: "purple" }} onClick={handleTrade}>{canControlPropertyActions ? 'Trade Property' : 'Only Turn Player Can Trade'}</button>
                   </>
                 );
               }
@@ -3061,12 +3089,12 @@ function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, 
             {/* Buy House/Hotel buttons for property owner */}
             {card.ownerIndex === currentPlayer.index && !card.hotel && card.houses < 4 && (
               <button style={{ ...modalStyles.button, backgroundColor: '#007bff', color: '#fff' }} onClick={handleBuyHouse}>
-                Buy House (${card.buildCost.house})
+                {canControlPropertyActions ? `Buy House ($${card.buildCost.house})` : 'Only Turn Player Can Buy'}
               </button>
             )}
             {card.ownerIndex === currentPlayer.index && !card.hotel && card.houses === 4 && (
               <button style={{ ...modalStyles.button, backgroundColor: '#b8860b', color: '#fff' }} onClick={handleBuyHotel}>
-                Buy Hotel (${card.buildCost.hotel})
+                {canControlPropertyActions ? `Buy Hotel ($${card.buildCost.hotel})` : 'Only Turn Player Can Buy'}
               </button>
             )}
             <button style={modalStyles.button} onClick={onClose}>Close</button>
@@ -3698,6 +3726,10 @@ function App() {
   };
 
   const rollDice = (val) => {
+    if (multiplayer.enabled && multiplayer.playerName !== players[currentPlayerIndex]?.name) {
+      alert('Only Turn Player Can Roll');
+      return;
+    }
     // Jewish Idea Yeshiva event: handle missed turns and prompt
     if (yeshivaState[currentPlayerIndex]?.active) {
       const count = yeshivaState[currentPlayerIndex].count;
@@ -3760,6 +3792,10 @@ function App() {
   };
 
   const endTurn = () => {
+    if (multiplayer.enabled && multiplayer.playerName !== players[currentPlayerIndex]?.name) {
+      alert('Only Turn Player Can End Turn');
+      return;
+    }
     if (multiplayer.enabled) {
       import('firebase/firestore').then(({ doc, updateDoc }) => {
         const gameRef = doc(db, "games", multiplayer.gameId);
@@ -4143,7 +4179,9 @@ function App() {
               <Dice sides={6} onRoll={rollDice} rollTime={1} />
               <Dice sides={6} onRoll={rollDice} rollTime={1} />
             </div>
-            <button onClick={endTurn} style={{ ...styles.button, marginTop: 15 }}>End Turn</button>
+            <button onClick={endTurn} style={{ ...styles.button, marginTop: 15 }}>
+              {!multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name ? 'End Turn' : 'Only Turn Player Can End Turn'}
+            </button>
           </div>
         </>
       )}
@@ -4159,6 +4197,7 @@ function App() {
           updatePlayers={setPlayers}
           boardEvents={boardEvents}
           setBoardEvents={setBoardEvents}
+          canControlPropertyActions={!multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name}
           onClose={() => setQaMode(false)}
           onRescue={(player, rent) => {
             setRescueInfo({ player, rent });
@@ -4448,11 +4487,7 @@ function App() {
                 }))
               });
             }
-            if (
-              card.target === "tzedakah" ||
-              card.buttonText === "Give the bank $1000" ||
-              card.buttonText === "Pay 2000 Zchut (Olam Haba Fund)"
-            ) {
+            if (card.target === "tzedakah") {
               if (card.penaltyType === "zchut") {
                 setZchutFundAmount((prev) => prev + card.penalty);
               } else {
@@ -4530,4 +4565,6 @@ const modalStyles = {
 };
 
 export default App;
+
+
 

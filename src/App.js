@@ -359,36 +359,7 @@ function ParshaCardModal({
   };
 
   // Shuffle only the qa cards, keep deck cards in place
-  const handleShuffle = async () => {
-    const activeCards = cardsState || cards;
-    if (!activeCards || activeCards.length === 0) return;
-
-    if (multiplayerEnabled && multiplayerGameId) {
-      // In multiplayer, publish a random card index so all players see the same card.
-      const currentSafe = Math.max(0, Math.min(cardIndex, activeCards.length - 1));
-      let nextIndex = currentSafe;
-      if (activeCards.length > 1) {
-        while (nextIndex === currentSafe) {
-          nextIndex = Math.floor(Math.random() * activeCards.length);
-        }
-      }
-      try {
-        const gameRef = doc(db, "games", multiplayerGameId);
-        await updateDoc(gameRef, {
-          'gameState.parshaCardIndex': nextIndex,
-          'gameState.showParshaModal': true,
-          'gameState.parshaModalState': {
-            shownAnswers: [],
-            approvedQuestions: [],
-            claimedQuestions: []
-          }
-        });
-      } catch (err) {
-        console.error('Failed to sync Parsha shuffle:', err);
-      }
-      return;
-    }
-
+  const handleShuffle = () => {
     if (!cardsState) return;
     // Separate qa and deck cards
     const qaCards = cardsState.filter(card => card.type === 'qa');

@@ -311,6 +311,9 @@ function ParshaCardModal({
       } else {
         setCardIndex(0);
       }
+    } else if (open && cardsState && typeof forcedCardIndex === 'number' && forcedCardIndex >= 0) {
+      // Keep remote viewers in sync when the turn player advances/shuffles Parsha cards.
+      setCardIndex((prev) => (prev === forcedCardIndex ? prev : forcedCardIndex));
     }
     if (!open && cardsState) {
       setCardsState(null);

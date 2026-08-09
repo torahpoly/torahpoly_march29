@@ -4004,6 +4004,15 @@ function App() {
               );
             })}
             {/* TorahPoly Board Buttons overlay - does not affect any other logic */}
+            <div id="torahpoly-board-overlay">
+              <style>{`
+                @supports (-moz-appearance: none) {
+                  #torahpoly-board-overlay > button:nth-of-type(4) {
+                    transform: translate(-50%, -50%) !important;
+                    transform-origin: center center !important;
+                  }
+                }
+              `}</style>
             <TorahPolyBoardButtons
               startQA={async (card) => {
                 const isTurnPlayer = !multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name;
@@ -4112,6 +4121,7 @@ function App() {
               tzedakahAmount={tzedakahAmount}
               zchutFundAmount={zchutFundAmount}
             />
+            </div>
                       {/* Parsha Card Modal */}
                       <ParshaCardModal
                         open={showParshaModal}

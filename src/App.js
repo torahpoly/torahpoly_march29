@@ -4006,11 +4006,9 @@ function App() {
             {/* TorahPoly Board Buttons overlay - does not affect any other logic */}
             <div id="torahpoly-board-overlay">
               <style>{`
-                @supports (-moz-appearance: none) {
-                  #torahpoly-board-overlay > button:nth-of-type(4) {
-                    transform: translate(-50%, -50%) !important;
-                    transform-origin: center center !important;
-                  }
+                #torahpoly-board-overlay > button:nth-of-type(4) {
+                  transform: translate(-50%, -50%) !important;
+                  transform-origin: center center !important;
                 }
               `}</style>
             <TorahPolyBoardButtons

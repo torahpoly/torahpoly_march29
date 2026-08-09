@@ -281,7 +281,6 @@ function ParshaCardModal({
   const [shuffled, setShuffled] = useState(false);
   const [cardsState, setCardsState] = useState(null);
   const [originalCards, setOriginalCards] = useState(null);
-  const lastSyncedParshaIndexRef = useRef(null);
 
   const syncParshaModalState = async (nextShown, nextApproved, nextClaimed) => {
     if (!multiplayerEnabled || !multiplayerGameId) return;
@@ -336,15 +335,6 @@ function ParshaCardModal({
       const gameRef = doc(db, "games", multiplayerGameId);
       unsub = onSnapshot(gameRef, (snap) => {
         const data = snap.data();
-        const remoteParshaIndex = data?.gameState?.parshaCardIndex;
-        if (typeof remoteParshaIndex === 'number' && lastSyncedParshaIndexRef.current !== remoteParshaIndex) {
-          lastSyncedParshaIndexRef.current = remoteParshaIndex;
-          setCardIndex(remoteParshaIndex);
-          setShownAnswers([]);
-          setApprovedQuestions([]);
-          setClaimedQuestions([]);
-        }
-
         const state = data?.gameState?.parshaModalState;
         if (!state) return;
 

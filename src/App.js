@@ -322,17 +322,6 @@ function ParshaCardModal({
       // Do not reset cardIndex here
     }
     // eslint-disable-next-line
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    if (typeof forcedCardIndex !== 'number' || forcedCardIndex < 0) return;
-
-    setCardIndex(forcedCardIndex);
-    // When the active Parsha card changes, clear prior per-question reveal/claim state.
-    setShownAnswers([]);
-    setApprovedQuestions([]);
-    setClaimedQuestions([]);
   }, [open, forcedCardIndex]);
 
   useEffect(() => {

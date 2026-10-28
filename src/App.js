@@ -128,9 +128,47 @@ async function setPlayerColorInFirestore(gameId, playerName, color) {
 import { db } from "./firebase";
 import { doc, setDoc, updateDoc, getDoc } from "firebase/firestore";
 
+const getNextActivePlayerIndex = (players, fromIndex) => {
+  if (!players.length) return 0;
+  const startIndex = Number.isInteger(fromIndex)
+    ? ((fromIndex % players.length) + players.length) % players.length
+    : 0;
+  for (let offset = 1; offset <= players.length; offset++) {
+    const index = (startIndex + offset) % players.length;
+    if (players[index] && players[index].isActive !== false) return index;
+  }
+  return startIndex;
+};
+
 function MultiplayerEntry({ onJoin }) {
-  const [gameId, setGameId] = useState("");
+  const [gameId, setGameId] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("game") || "";
+    } catch (err) {
+      return "";
+    }
+  });
   const [playerName, setPlayerName] = useState("");
+  const [linkedGameId] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("game") || "";
+    } catch (err) {
+      return "";
+    }
+  });
+  // undefined = checking, null = not found, object = found
+  const [linkedGameInfo, setLinkedGameInfo] = useState(undefined);
+  useEffect(() => {
+    if (!linkedGameId) return;
+    let cancelled = false;
+    getDoc(doc(db, "games", linkedGameId.trim()))
+      .then(snap => {
+        if (cancelled) return;
+        setLinkedGameInfo(snap.exists() ? { groupName: snap.data().classroomGroupName || "" } : null);
+      })
+      .catch(() => { if (!cancelled) setLinkedGameInfo(null); });
+    return () => { cancelled = true; };
+  }, [linkedGameId]);
   // Save player info to Firestore on join (now inside gameState)
   const handleJoin = async () => {
     const normalizedGameId = gameId.trim();
@@ -139,13 +177,18 @@ function MultiplayerEntry({ onJoin }) {
 
     const gameRef = doc(db, "games", normalizedGameId);
     const gameSnap = await getDoc(gameRef);
+    if (linkedGameId && !gameSnap.exists()) {
+      alert("Game not found. Please use the link your teacher gave you.");
+      return;
+    }
     const playerTemplate = {
       name: normalizedPlayerName,
       position: 0,
       money: 2000,
       zchutPoints: 1000,
       missTurn: false,
-      color: null
+      color: null,
+      isActive: true
     };
 
     if (!gameSnap.exists()) {
@@ -154,7 +197,8 @@ function MultiplayerEntry({ onJoin }) {
         gameState: {
           players: [playerTemplate],
           waitingRoom: [{ name: normalizedPlayerName, joined: Date.now() }],
-          currentPlayerIndex: 0
+          currentPlayerIndex: 0,
+          gameStarted: false
         },
         created: Date.now(),
       });
@@ -163,13 +207,28 @@ function MultiplayerEntry({ onJoin }) {
       const data = gameSnap.data();
       const gs = data.gameState || {};
       const playersArr = Array.isArray(gs.players) ? gs.players : [];
-      const alreadyPlayer = playersArr.some(p => p.name === normalizedPlayerName);
+      const existingPlayerIndex = playersArr.findIndex(p => p.name === normalizedPlayerName);
+      const alreadyPlayer = existingPlayerIndex !== -1;
       const waitingArr = Array.isArray(gs.waitingRoom) ? gs.waitingRoom : [];
       const alreadyWaiting = waitingArr.some(p => p.name === normalizedPlayerName);
 
       const updates = {};
       if (!alreadyPlayer) {
         updates['gameState.players'] = [...playersArr, playerTemplate];
+        if (playersArr[gs.currentPlayerIndex]?.isActive === false) {
+          updates['gameState.currentPlayerIndex'] = playersArr.length;
+        }
+      } else if (playersArr[existingPlayerIndex].isActive === false) {
+        updates['gameState.players'] = playersArr.map((player, index) =>
+          index === existingPlayerIndex ? { ...player, isActive: true } : player
+        );
+        const currentIndex = gs.currentPlayerIndex;
+        if (
+          !playersArr.some((player, index) => index !== existingPlayerIndex && player.isActive !== false) ||
+          playersArr[currentIndex]?.isActive === false
+        ) {
+          updates['gameState.currentPlayerIndex'] = existingPlayerIndex;
+        }
       }
       if (!alreadyWaiting) {
         updates['gameState.waitingRoom'] = [...waitingArr, { name: normalizedPlayerName, joined: Date.now() }];
@@ -182,13 +241,21 @@ function MultiplayerEntry({ onJoin }) {
   };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 80 }}>
-      <h2>Join Multiplayer Game</h2>
-      <input
-        placeholder="Game ID"
-        value={gameId}
-        onChange={e => setGameId(e.target.value)}
-        style={{ margin: 8, padding: 8, fontSize: 18 }}
-      />
+      <h2>{linkedGameId ? "Join Game" : "Join Multiplayer Game"}</h2>
+      {linkedGameId ? (
+        <div style={{ margin: 8, fontSize: 20 }}>
+          {linkedGameInfo === undefined && "Checking game..."}
+          {linkedGameInfo === null && <span style={{ color: "#a12626" }}>Game not found. Please use the link your teacher gave you.</span>}
+          {linkedGameInfo && <strong>Joining: {linkedGameInfo.groupName || linkedGameId}</strong>}
+        </div>
+      ) : (
+        <input
+          placeholder="Game ID"
+          value={gameId}
+          onChange={e => setGameId(e.target.value)}
+          style={{ margin: 8, padding: 8, fontSize: 18 }}
+        />
+      )}
       <input
         placeholder="Your Name"
         value={playerName}
@@ -198,7 +265,7 @@ function MultiplayerEntry({ onJoin }) {
       <button
         onClick={handleJoin}
         style={{ margin: 12, padding: '10px 32px', fontSize: 20 }}
-        disabled={!gameId || !playerName}
+        disabled={!gameId || !playerName || (linkedGameId && !linkedGameInfo)}
       >
         Join Game
       </button>
@@ -281,8 +348,9 @@ function ParshaCardModal({
   const [shuffled, setShuffled] = useState(false);
   const [cardsState, setCardsState] = useState(null);
   const [originalCards, setOriginalCards] = useState(null);
+  const [qaOrder, setQaOrder] = useState([]);
 
-  const syncParshaModalState = async (nextShown, nextApproved, nextClaimed) => {
+  const syncParshaModalState = async (nextShown, nextApproved, nextClaimed, nextQaOrder = qaOrder, nextCardIndex = cardIndex) => {
     if (!multiplayerEnabled || !multiplayerGameId) return;
     try {
       const gameRef = doc(db, "games", multiplayerGameId);
@@ -291,6 +359,8 @@ function ParshaCardModal({
           shownAnswers: nextShown,
           approvedQuestions: nextApproved,
           claimedQuestions: nextClaimed,
+          qaOrder: nextQaOrder,
+          cardIndex: nextCardIndex,
         }
       });
     } catch (err) {
@@ -303,6 +373,7 @@ function ParshaCardModal({
       setCardsState(cards);
       setOriginalCards(cards);
       setShuffled(false);
+      setQaOrder(cards.filter(card => card.type === 'qa').map(card => card.title));
       setShownAnswers([]);
       setApprovedQuestions([]);
       setClaimedQuestions([]);
@@ -316,6 +387,7 @@ function ParshaCardModal({
       setCardsState(null);
       setOriginalCards(null);
       setShuffled(false);
+      setQaOrder([]);
       setShownAnswers([]);
       setApprovedQuestions([]);
       setClaimedQuestions([]);
@@ -338,6 +410,13 @@ function ParshaCardModal({
         if (Array.isArray(state.shownAnswers)) setShownAnswers(state.shownAnswers);
         if (Array.isArray(state.approvedQuestions)) setApprovedQuestions(state.approvedQuestions);
         if (Array.isArray(state.claimedQuestions)) setClaimedQuestions(state.claimedQuestions);
+        if (Array.isArray(state.qaOrder)) {
+          setQaOrder(state.qaOrder);
+          setCardsState(arrangeCardsByQaOrder(cards, state.qaOrder));
+          const originalQaOrder = cards.filter(card => card.type === 'qa').map(card => card.title);
+          setShuffled(state.qaOrder.some((title, index) => title !== originalQaOrder[index]));
+        }
+        if (typeof state.cardIndex === 'number') setCardIndex(state.cardIndex);
       });
     });
 
@@ -346,12 +425,12 @@ function ParshaCardModal({
     };
   }, [open, multiplayerEnabled, multiplayerGameId]);
 
-  const clearParshaQuestionState = () => {
+  const clearParshaQuestionState = (nextQaOrder = qaOrder, nextCardIndex = cardIndex) => {
     setShownAnswers([]);
     setApprovedQuestions([]);
     setClaimedQuestions([]);
     if (multiplayerEnabled && multiplayerGameId) {
-      syncParshaModalState([], [], []);
+      syncParshaModalState([], [], [], nextQaOrder, nextCardIndex);
     }
   };
 
@@ -367,6 +446,7 @@ function ParshaCardModal({
       const j = Math.floor(Math.random() * (i + 1));
       [shuffledQa[i], shuffledQa[j] ] = [shuffledQa[j], shuffledQa[i]];
     }
+    const nextQaOrder = shuffledQa.map(card => card.title);
     // Rebuild alternating array
     const newCards = [];
     let qaIdx = 0, deckIdx = 0;
@@ -379,8 +459,9 @@ function ParshaCardModal({
     }
     setCardsState(newCards);
     setShuffled(true);
+    setQaOrder(nextQaOrder);
     setCardIndex(0);
-    clearParshaQuestionState();
+    clearParshaQuestionState(nextQaOrder, 0);
   };
 
   // Restore original order
@@ -388,8 +469,10 @@ function ParshaCardModal({
     if (originalCards) {
       setCardsState(originalCards);
       setShuffled(false);
+      const originalQaOrder = originalCards.filter(card => card.type === 'qa').map(card => card.title);
+      setQaOrder(originalQaOrder);
       setCardIndex(0);
-      clearParshaQuestionState();
+      clearParshaQuestionState(originalQaOrder, 0);
     }
   };
 
@@ -1866,6 +1949,19 @@ function ParshaCardModal({
     },
   ]; // End of cards array
 
+  const arrangeCardsByQaOrder = (sourceCards, nextQaOrder) => {
+    const qaCardsByTitle = new Map(
+      sourceCards.filter(card => card.type === 'qa').map(card => [card.title, card])
+    );
+    let qaIndex = 0;
+    return sourceCards.map(card => {
+      if (card.type !== 'qa') return card;
+      const orderedCard = qaCardsByTitle.get(nextQaOrder[qaIndex]);
+      qaIndex += 1;
+      return orderedCard || card;
+    });
+  };
+
   const handleShowAnswer = (idx) => {
     if (!canControlParsha) return;
     if (shownAnswers.includes(idx)) return;
@@ -1912,14 +2008,16 @@ function ParshaCardModal({
 
   const handleNext = () => {
     if (!canControlParsha) return;
-    clearParshaQuestionState();
-    setCardIndex((prev) => Math.min(prev + 1, (cardsState || cards).length - 1));
+    const nextIndex = Math.min(cardIndex + 1, (cardsState || cards).length - 1);
+    clearParshaQuestionState(qaOrder, nextIndex);
+    setCardIndex(nextIndex);
   };
 
   const handleBack = () => {
     if (!canControlParsha) return;
-    clearParshaQuestionState();
-    setCardIndex((prev) => Math.max(prev - 1, 0));
+    const nextIndex = Math.max(cardIndex - 1, 0);
+    clearParshaQuestionState(qaOrder, nextIndex);
+    setCardIndex(nextIndex);
   };
 
   const safeIndex = Math.max(0, Math.min(cardIndex, (cardsState || cards).length - 1));
@@ -2664,7 +2762,7 @@ function RescueModal({ open, onClose, currentPlayer, rentAmount, players, setPla
 }
 
 // --- Card Modal ---
-function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, updatePlayers, onRescue, boardEvents, setBoardEvents, canControlPropertyActions }) {
+function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, updatePlayers, onRescue, boardEvents, setBoardEvents, canControlPropertyActions, canClosePropertyModal }) {
     // Helper: Can buy house?
     const canBuyHouse = () => {
       return card.ownerIndex === currentPlayer.index && !card.hotel && card.houses < 4 && currentPlayer.money >= card.buildCost.house;
@@ -3098,7 +3196,9 @@ function CardModal({ card, onClose, mode, currentPlayer, updatePlayer, players, 
                 {canControlPropertyActions ? `Buy Hotel ($${card.buildCost.hotel})` : 'Only Turn Player Can Buy'}
               </button>
             )}
-            <button style={modalStyles.button} onClick={onClose}>Close</button>
+            <button style={modalStyles.button} onClick={onClose} disabled={!canClosePropertyModal}>
+              {canClosePropertyModal ? 'Close' : 'Only Turn Player Can Close'}
+            </button>
           </>
         )}
       </div>
@@ -3258,9 +3358,641 @@ function RulesModal({ open, onClose }) {
 
 // --- Main App ---
 
+function TeacherModePreview({ onBack }) {
+  const savedTournamentId = new URLSearchParams(window.location.search).get("teacherTournament");
+  const [step, setStep] = useState(savedTournamentId ? "loading" : "intro");
+  const [className, setClassName] = useState("");
+  const [groups, setGroups] = useState([
+    { name: "Group A", studentsText: "" },
+    { name: "Group B", studentsText: "" },
+  ]);
+  const [tournament, setTournament] = useState(null);
+  const [error, setError] = useState("");
+  const [actionStatus, setActionStatus] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [classroomResults, setClassroomResults] = useState({});
+  const [classroomResultsLoading, setClassroomResultsLoading] = useState(false);
+  const [classroomResultsError, setClassroomResultsError] = useState("");
+  const [showClassroomResults, setShowClassroomResults] = useState(false);
+  const [showAllIndividualResults, setShowAllIndividualResults] = useState(false);
+  const [expandedResultGroupId, setExpandedResultGroupId] = useState(null);
+  const demoGroups = [
+    { name: "Group A", money: 12400, zchut: 8600 },
+    { name: "Group B", money: 15800, zchut: 7900 },
+    { name: "Group C", money: 10900, zchut: 11200 },
+  ];
+  const demoWinners = [
+    { name: "Ari", group: "Group B", category: "TorahPoly", score: 8200 },
+    { name: "Noah", group: "Group C", category: "Zchut", score: 5400 },
+    { name: "Dorothy", group: "Group A", category: "TorahPoly", score: 7600 },
+    { name: "Miriam", group: "Group C", category: "Zchut", score: 5100 },
+    { name: "Sam", group: "Group A", category: "Zchut", score: 4900 },
+    { name: "Ruth", group: "Group B", category: "TorahPoly", score: 7100 },
+  ];
+  const accent = "#087f83";
+  const cardStyle = {
+    background: "#fff",
+    border: "1px solid #dce5e7",
+    borderRadius: 16,
+    padding: 20,
+    boxShadow: "0 8px 24px rgba(27, 57, 64, 0.07)",
+  };
+  const primaryButton = {
+    background: accent,
+    color: "#fff",
+    border: 0,
+    borderRadius: 10,
+    padding: "12px 18px",
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: "pointer",
+  };
+  const secondaryButton = {
+    ...primaryButton,
+    background: "#e8f1f2",
+    color: "#24494d",
+  };
+
+  useEffect(() => {
+    if (!savedTournamentId) return;
+    let cancelled = false;
+    const loadTournament = async () => {
+      try {
+        const { doc: firestoreDoc, getDoc } = await import("firebase/firestore");
+        const tournamentSnapshot = await getDoc(firestoreDoc(db, "classroomTournaments", savedTournamentId));
+        if (!tournamentSnapshot.exists()) throw new Error("Classroom tournament not found.");
+        if (cancelled) return;
+        const savedData = tournamentSnapshot.data();
+        setTournament({ id: tournamentSnapshot.id, ...savedData });
+        setClassName(savedData.className || "");
+        setStep("created");
+      } catch (loadError) {
+        if (cancelled) return;
+        setError(`Could not load this classroom tournament: ${loadError.message}`);
+        setStep("intro");
+      }
+    };
+    loadTournament();
+    return () => { cancelled = true; };
+  }, [savedTournamentId]);
+
+  useEffect(() => {
+    const tournamentGroups = (tournament?.groups || []).filter(group => group.gameId);
+    if (tournamentGroups.length === 0) {
+      setClassroomResults({});
+      setClassroomResultsLoading(false);
+      return;
+    }
+
+    let active = true;
+    const unsubscribeFunctions = [];
+    const waitingForInitialSnapshots = new Set(tournamentGroups.map(group => group.gameId));
+    setClassroomResultsLoading(true);
+    setClassroomResultsError("");
+
+    import("firebase/firestore").then(({ doc: firestoreDoc, onSnapshot }) => {
+      if (!active) return;
+      tournamentGroups.forEach(group => {
+        const unsubscribe = onSnapshot(
+          firestoreDoc(db, "games", group.gameId),
+          gameSnapshot => {
+            if (!active) return;
+            waitingForInitialSnapshots.delete(group.gameId);
+            if (!gameSnapshot.exists()) {
+              setClassroomResults(previous => ({
+                ...previous,
+                [group.gameId]: { exists: false, gameEnded: false, players: [] },
+              }));
+            } else {
+              const gameState = gameSnapshot.data().gameState || {};
+              const players = Array.isArray(gameState.players) ? gameState.players : [];
+              const boardEvents = gameState.boardEvents && typeof gameState.boardEvents === "object"
+                ? gameState.boardEvents
+                : {};
+              const playerResults = players.map((player, playerIndex) => {
+                const propertyValue = Object.values(boardEvents).reduce((total, event) => {
+                  const property = event?.card;
+                  if (event?.type !== "property" || property?.ownerIndex !== playerIndex) return total;
+                  const price = typeof property.price === "number" ? property.price : 0;
+                  const houseCost = typeof property.buildCost?.house === "number" ? property.buildCost.house : 0;
+                  const hotelCost = typeof property.buildCost?.hotel === "number" ? property.buildCost.hotel : 0;
+                  const buildingValue = property.hotel
+                    ? (4 * houseCost) + hotelCost
+                    : (Math.max(0, Number(property.houses) || 0) * houseCost);
+                  return total + price + buildingValue;
+                }, 0);
+                const cash = typeof player.money === "number"
+                  ? player.money
+                  : (typeof player.money?.money === "number" ? player.money.money : 0);
+                return {
+                  name: player.name || "Unnamed player",
+                  cash,
+                  propertyValue,
+                  torahPolyTotal: cash + propertyValue,
+                  zchut: typeof player.zchutPoints === "number" ? player.zchutPoints : 0,
+                };
+              });
+              setClassroomResults(previous => ({
+                ...previous,
+                [group.gameId]: {
+                  exists: true,
+                  gameEnded: gameState.gameEnded === true,
+                  players: playerResults,
+                },
+              }));
+            }
+            if (waitingForInitialSnapshots.size === 0) setClassroomResultsLoading(false);
+          },
+          snapshotError => {
+            if (!active) return;
+            waitingForInitialSnapshots.delete(group.gameId);
+            setClassroomResultsError(`Could not load ${group.name}'s game results: ${snapshotError.message}`);
+            setClassroomResults(previous => ({
+              ...previous,
+              [group.gameId]: { exists: false, gameEnded: false, players: [], error: true },
+            }));
+            if (waitingForInitialSnapshots.size === 0) setClassroomResultsLoading(false);
+          }
+        );
+        unsubscribeFunctions.push(unsubscribe);
+      });
+    }).catch(loadError => {
+      if (!active) return;
+      setClassroomResultsError(`Could not load classroom results: ${loadError.message}`);
+      setClassroomResultsLoading(false);
+    });
+
+    return () => {
+      active = false;
+      unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
+    };
+  }, [tournament]);
+
+  const updateGroup = (groupIndex, key, value) => {
+    setGroups(previous => previous.map((group, index) =>
+      index === groupIndex ? { ...group, [key]: value } : group
+    ));
+  };
+
+  const createTournament = async () => {
+    setError("");
+    setActionStatus("Checking the class and group names...");
+    const normalizedClassName = className.trim();
+    const normalizedGroups = groups.map(group => ({
+      name: group.name.trim(),
+      playerNames: group.studentsText.split(/[\n,]+/).map(name => name.trim()).filter(Boolean),
+    }));
+
+    if (!normalizedClassName) {
+      setError("Enter a class or tournament name.");
+      setActionStatus("");
+      return;
+    }
+    if (normalizedGroups.length < 1 || normalizedGroups.length > 10) {
+      setError("A tournament must have between 1 and 10 groups.");
+      setActionStatus("");
+      return;
+    }
+    const invalidGroup = normalizedGroups.find(group =>
+      !group.name || group.playerNames.length < 2 || group.playerNames.length > 7
+    );
+    if (invalidGroup) {
+      setError(`Give each group a name and enter 2–7 student names per group. Check ${invalidGroup.name || "the unnamed group"}.`);
+      setActionStatus("");
+      return;
+    }
+    const groupWithDuplicateNames = normalizedGroups.find(group =>
+      new Set(group.playerNames.map(name => name.toLocaleLowerCase())).size !== group.playerNames.length
+    );
+    if (groupWithDuplicateNames) {
+      setError(`Remove duplicate student names from ${groupWithDuplicateNames.name}.`);
+      setActionStatus("");
+      return;
+    }
+
+    setIsSaving(true);
+    setActionStatus("Saving the tournament and group games to Firebase...");
+    try {
+      const { collection, doc: firestoreDoc, writeBatch } = await import("firebase/firestore");
+      const tournamentRef = firestoreDoc(collection(db, "classroomTournaments"));
+      const batch = writeBatch(db);
+      const groupsWithGameIds = normalizedGroups.map(group => {
+        const groupSlug = group.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "group";
+        const gameRef = firestoreDoc(db, "games", `${groupSlug}-${Math.random().toString(36).slice(2, 6)}`);
+        const players = group.playerNames.map((name, index) => ({
+          name,
+          position: 0,
+          money: 2000,
+          zchutPoints: 1000,
+          missTurn: false,
+          color: null,
+          isActive: true,
+          index,
+        }));
+        batch.set(gameRef, {
+          gameState: {
+            players,
+            waitingRoom: [],
+            currentPlayerIndex: 0,
+            gameStarted: false,
+            gameEnded: false,
+          },
+          classroomTournamentId: tournamentRef.id,
+          classroomGroupName: group.name,
+          created: Date.now(),
+        });
+        return { name: group.name, playerNames: group.playerNames, gameId: gameRef.id };
+      });
+
+      batch.set(tournamentRef, {
+        className: normalizedClassName,
+        groups: groupsWithGameIds,
+        createdAt: Date.now(),
+        status: "active",
+        version: 1,
+      });
+      await batch.commit();
+
+      const newTournament = {
+        id: tournamentRef.id,
+        className: normalizedClassName,
+        groups: groupsWithGameIds,
+        status: "active",
+      };
+      setTournament(newTournament);
+      setClassName(normalizedClassName);
+      setStep("created");
+      window.history.replaceState({}, "", `${window.location.pathname}?teacherTournament=${encodeURIComponent(tournamentRef.id)}`);
+      setActionStatus("Tournament created successfully.");
+    } catch (saveError) {
+      setError(`Could not create the tournament in Firebase: ${saveError.message}`);
+      setActionStatus("The save did not complete.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const copyLink = async (label, link) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setError(`${label} copied to clipboard.`);
+    } catch (copyError) {
+      window.prompt(`Copy this ${label.toLowerCase()}:`, link);
+    }
+  };
+
+  const getTournamentLink = () =>
+    `${window.location.origin}${window.location.pathname}?teacherTournament=${encodeURIComponent(tournament.id)}`;
+
+  const getGameLink = gameId =>
+    `${window.location.origin}${window.location.pathname}?game=${encodeURIComponent(gameId)}`;
+
+  const groupScoreRows = (tournament?.groups || []).map(group => {
+    const result = classroomResults[group.gameId];
+    const completed = result?.gameEnded === true;
+    const players = completed ? result.players : [];
+    return {
+      ...group,
+      completed,
+      status: result?.error
+        ? "Could not load"
+        : result?.exists === false
+          ? "Game not found"
+          : completed
+            ? "Results verified"
+            : "Game not finished",
+      torahPolyTotal: players.reduce((total, player) => total + player.torahPolyTotal, 0),
+      zchutTotal: players.reduce((total, player) => total + player.zchut, 0),
+      players,
+    };
+  });
+  const completedPlayerScores = groupScoreRows.flatMap(group =>
+    group.players.map(player => ({ ...player, groupName: group.name }))
+  );
+  const rankByScore = (entries, scoreKey) => {
+    let previousScore;
+    let previousRank = 0;
+    return [...entries]
+      .sort((a, b) => b[scoreKey] - a[scoreKey])
+      .map((entry, index) => {
+        const rank = entry[scoreKey] === previousScore ? previousRank : index + 1;
+        previousScore = entry[scoreKey];
+        previousRank = rank;
+        return { ...entry, rank };
+      });
+  };
+  const getClassLeaders = (entries, scoreKey) => {
+    if (entries.length === 0) return { score: 0, names: [] };
+    const highestScore = Math.max(...entries.map(entry => entry[scoreKey]));
+    return {
+      score: highestScore,
+      names: entries.filter(entry => entry[scoreKey] === highestScore).map(entry =>
+        entry.groupName ? `${entry.name} (${entry.groupName})` : entry.name
+      ),
+    };
+  };
+  const rankedGroupsByTorahPoly = rankByScore(groupScoreRows.filter(group => group.completed), "torahPolyTotal");
+  const rankedGroupsByZchut = rankByScore(groupScoreRows.filter(group => group.completed), "zchutTotal");
+  const rankedPlayersByTorahPoly = rankByScore(completedPlayerScores, "torahPolyTotal");
+  const rankedPlayersByZchut = rankByScore(completedPlayerScores, "zchut");
+  const groupRanks = new Map(rankedGroupsByTorahPoly.map(group => [group.gameId, {
+    torahPolyRank: group.rank,
+    zchutRank: rankedGroupsByZchut.find(rankedGroup => rankedGroup.gameId === group.gameId)?.rank,
+  }]));
+  const rankedGroupStandings = [
+    ...rankedGroupsByTorahPoly.map(group => ({
+      ...group,
+      ...(groupRanks.get(group.gameId) || {}),
+    })),
+    ...groupScoreRows.filter(group => !group.completed),
+  ];
+  const playerZchutRanks = new Map(rankedPlayersByZchut.map(player => [
+    `${player.groupName}\u0000${player.name}`,
+    player.rank,
+  ]));
+  const rankedIndividualStandings = rankedPlayersByTorahPoly.map(player => ({
+    ...player,
+    zchutRank: playerZchutRanks.get(`${player.groupName}\u0000${player.name}`),
+  }));
+  const topGroupTorahPoly = getClassLeaders(groupScoreRows.filter(group => group.completed), "torahPolyTotal");
+  const topGroupZchut = getClassLeaders(groupScoreRows.filter(group => group.completed), "zchutTotal");
+  const topIndividualTorahPoly = getClassLeaders(completedPlayerScores, "torahPolyTotal");
+  const topIndividualZchut = getClassLeaders(completedPlayerScores, "zchut");
+  const leaderNames = leaders => leaders.names.length > 0 ? leaders.names.join(", ") : "Waiting for a completed game";
+
+  return (
+    <main style={{ minHeight: "100vh", padding: "32px 18px", background: "#f3f7f7", color: "#183438", fontFamily: "Arial, sans-serif" }}>
+      <div style={{ maxWidth: 1050, margin: "0 auto" }}>
+        <button onClick={onBack} style={{ ...secondaryButton, marginBottom: 22 }}>← Back to game</button>
+        <header style={{ ...cardStyle, marginBottom: 20, background: "linear-gradient(135deg, #e8f6f3, #fff 70%)" }}>
+          <div style={{ color: accent, fontSize: 13, fontWeight: 800, letterSpacing: 1.4, textTransform: "uppercase" }}>Torahpoly for classrooms</div>
+          <h1 style={{ margin: "12px 0", fontSize: "clamp(30px, 5vw, 42px)" }}>Teacher Mode</h1>
+          <p style={{ maxWidth: 720, lineHeight: 1.6, color: "#486165" }}>
+            Create a classroom tournament and one separate game for each group. The regular game and its scoring stay the same.
+          </p>
+        </header>
+
+        {error && <p role="status" style={{ ...cardStyle, color: error.includes("copied") ? accent : "#a12626", marginBottom: 16 }}>{error}</p>}
+        {actionStatus && <p role="status" style={{ ...cardStyle, color: accent, marginBottom: 16 }}>{actionStatus}</p>}
+
+        {step === "intro" && (
+          <section style={{ ...cardStyle, padding: "clamp(24px, 5vw, 44px)", background: "linear-gradient(135deg, #e8f6f3, #fff 70%)" }}>
+            <div style={{ color: accent, fontSize: 13, fontWeight: 800, letterSpacing: 1.4, textTransform: "uppercase" }}>Torahpoly for classrooms</div>
+            <h2 style={{ margin: "12px 0", fontSize: "clamp(28px, 4vw, 38px)" }}>One class. Several games. One big scoreboard.</h2>
+            <p style={{ maxWidth: 720, lineHeight: 1.7, color: "#486165", fontSize: 17 }}>
+              Groups play the familiar Torahpoly game separately. Teacher Mode brings their individual winners and group totals together so the whole class can celebrate.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(175px, 1fr))", gap: 12, margin: "28px 0" }}>
+              {[["1", "Create a class"], ["2", "Organize group games"], ["3", "Compare results"]].map(([number, label]) => (
+                <div key={number} style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 12, padding: 14 }}>
+                  <span style={{ display: "grid", placeItems: "center", width: 34, height: 34, borderRadius: "50%", background: accent, color: "#fff", fontWeight: 800 }}>{number}</span>
+                  <strong>{label}</strong>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setStep("results")} style={primaryButton}>See example results →</button>
+          </section>
+        )}
+
+        {step === "setup" && (
+          <section aria-labelledby="teacher-setup-title" style={cardStyle}>
+            <h2 id="teacher-setup-title">Class and groups</h2>
+            <label htmlFor="teacher-class-name" style={{ display: "block", fontWeight: 700, margin: "18px 0 7px" }}>
+              Class or tournament name <span aria-hidden="true" style={{ color: "#c62828" }}>*</span>
+            </label>
+            <input id="teacher-class-name" required value={className} onChange={event => setClassName(event.target.value)} placeholder="e.g. Room 4 Torah Tournament" style={{ width: "min(100%, 460px)", boxSizing: "border-box", padding: 12, border: "1px solid #bdccce", borderRadius: 8, fontSize: 16 }} />
+            <div style={{ color: "#c62828", fontSize: 13, marginTop: 5 }}><span aria-hidden="true">*</span> Required</div>
+            <h3 style={{ marginTop: 24 }}>Groups and students</h3>
+            <p style={{ color: "#5b7376" }}>Each game supports 2–7 players. Enter one student first name per line, or separate names with commas.</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+              {groups.map((group, index) => (
+                <div key={index} style={{ padding: 16, border: "1px solid #dce5e7", borderRadius: 12 }}>
+                  <label htmlFor={`teacher-group-name-${index}`} style={{ display: "block", fontWeight: 700, marginBottom: 8 }}>Group name</label>
+                  <input id={`teacher-group-name-${index}`} value={group.name} onChange={event => updateGroup(index, "name", event.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: 9, border: "1px solid #bdccce", borderRadius: 7, fontSize: 15 }} />
+                  <label htmlFor={`teacher-group-students-${index}`} style={{ display: "block", fontWeight: 700, margin: "14px 0 8px" }}>Student first names</label>
+                  <textarea id={`teacher-group-students-${index}`} value={group.studentsText} onChange={event => updateGroup(index, "studentsText", event.target.value)} rows={5} placeholder={"Dorothy\nSam\nJohn"} style={{ width: "100%", boxSizing: "border-box", padding: 9, border: "1px solid #bdccce", borderRadius: 7, fontSize: 15, resize: "vertical" }} />
+                  {groups.length > 1 && <button type="button" onClick={() => setGroups(previous => previous.filter((_, groupIndex) => groupIndex !== index))} style={{ ...secondaryButton, marginTop: 10, padding: "8px 12px" }}>Remove group</button>}
+                </div>
+              ))}
+            </div>
+            {groups.length < 10 && (
+              <button type="button" onClick={() => setGroups(previous => [...previous, { name: `Group ${String.fromCharCode(65 + previous.length)}`, studentsText: "" }])} style={{ ...secondaryButton, marginTop: 16 }}>+ Add group</button>
+            )}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 22 }}>
+              <button type="button" onClick={createTournament} disabled={isSaving} style={{ ...primaryButton, opacity: isSaving ? 0.7 : 1 }}>
+                {isSaving ? "Saving tournament..." : "Create tournament and game links"}
+              </button>
+              <button onClick={() => setStep("intro")} style={secondaryButton}>Cancel</button>
+            </div>
+          </section>
+        )}
+
+        {step === "loading" && <section style={cardStyle} role="status">Loading classroom tournament…</section>}
+
+        {step === "results" && (
+          <section aria-labelledby="teacher-demo-results-title">
+            <div style={{ ...cardStyle, marginBottom: 16 }}>
+              <div style={{ color: accent, fontWeight: 800, fontSize: 13, letterSpacing: 1 }}>EXAMPLE CLASS SCOREBOARD</div>
+              <h2 id="teacher-demo-results-title">Room 4 Torah Tournament</h2>
+              <p style={{ color: "#5b7376" }}>Sample results show how individual winners and group totals tell different stories.</p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12, marginBottom: 20 }}>
+                {[...demoGroups].sort((a, b) => b.money - a.money).slice(0, 1).map(group => (
+                  <div key="money-leader" style={{ padding: 16, borderRadius: 12, background: "#eaf5f3" }}>
+                    <strong>Highest group TorahPoly total</strong>
+                    <div style={{ fontSize: 21, fontWeight: 800, marginTop: 8 }}>{group.name}</div>
+                    <div>${group.money.toLocaleString()} combined</div>
+                  </div>
+                ))}
+                {[...demoGroups].sort((a, b) => b.zchut - a.zchut).slice(0, 1).map(group => (
+                  <div key="zchut-leader" style={{ padding: 16, borderRadius: 12, background: "#eef0fb" }}>
+                    <strong>Highest group Zchut total</strong>
+                    <div style={{ fontSize: 21, fontWeight: 800, marginTop: 8 }}>{group.name}</div>
+                    <div>{group.zchut.toLocaleString()} combined Zchut</div>
+                  </div>
+                ))}
+              </div>
+              <h3>Group standings</h3>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", minWidth: 450, borderCollapse: "collapse", textAlign: "left" }}>
+                  <thead><tr>{["Group", "Combined TorahPoly", "Combined Zchut"].map(label => <th key={label} style={{ padding: 10, borderBottom: "2px solid #dce5e7" }}>{label}</th>)}</tr></thead>
+                  <tbody>{demoGroups.map(group => (
+                    <tr key={group.name}>
+                      <td style={{ padding: 10, borderBottom: "1px solid #e8eeee", fontWeight: 700 }}>{group.name}</td>
+                      <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>${group.money.toLocaleString()}</td>
+                      <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{group.zchut.toLocaleString()}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </div>
+            <div style={{ ...cardStyle, marginBottom: 16, overflowX: "auto" }}>
+              <h3 style={{ marginTop: 0 }}>Individual game winners</h3>
+              <p style={{ color: "#5b7376" }}>Each game contributes its TorahPoly and Zchut leader. Ties could add more entries.</p>
+              <table style={{ width: "100%", minWidth: 520, borderCollapse: "collapse", textAlign: "left" }}>
+                <thead><tr>{["Rank", "Player", "Group", "Category", "Winning score"].map(label => <th key={label} style={{ padding: 10, borderBottom: "2px solid #dce5e7" }}>{label}</th>)}</tr></thead>
+                <tbody>{[...demoWinners].sort((a, b) => b.score - a.score).map((winner, index) => (
+                  <tr key={`${winner.name}-${winner.category}`}>
+                    <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{index + 1}</td>
+                    <td style={{ padding: 10, borderBottom: "1px solid #e8eeee", fontWeight: 700 }}>{winner.name}</td>
+                    <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{winner.group}</td>
+                    <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{winner.category}</td>
+                    <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{winner.category === "TorahPoly" ? "$" : ""}{winner.score.toLocaleString()}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+            <div style={{ ...cardStyle, marginBottom: 16 }}>
+              <h3 style={{ marginTop: 0 }}>Try it yourself</h3>
+              <p>Set up a class and create separate game links for your groups. Free to use during our launch period. No registration is required.</p>
+              <p style={{ color: "#8a4c10", background: "#fff5e5", padding: 12, borderRadius: 8 }}>
+                Please use student first names only. Teacher accounts and private classroom access are coming soon.
+              </p>
+              <button onClick={() => { setError(""); setStep("setup"); }} style={primaryButton}>Create a classroom tournament</button>
+            </div>
+            <button onClick={() => setStep("intro")} style={secondaryButton}>← Back to introduction</button>
+          </section>
+        )}
+
+        {step === "created" && tournament && (
+          <section>
+            {!showClassroomResults ? (
+              <div style={{ ...cardStyle, marginBottom: 16 }}>
+                <div style={{ color: accent, fontWeight: 800, fontSize: 13, letterSpacing: 1 }}>TOURNAMENT CREATED</div>
+                <h2>{tournament.className}</h2>
+                <p>Share each group’s game link. Students should enter their first name exactly as listed when joining.</p>
+                <button onClick={() => copyLink("Classroom management link", getTournamentLink())} style={{ ...secondaryButton, marginBottom: 14 }}>Copy classroom management link</button>
+                <div style={{ display: "grid", gap: 12 }}>
+                  {(tournament.groups || []).map(group => (
+                    <div key={group.gameId} style={{ padding: 16, border: "1px solid #dce5e7", borderRadius: 12 }}>
+                      <h3 style={{ margin: "0 0 8px" }}>{group.name}</h3>
+                      <p style={{ margin: "0 0 12px", color: "#5b7376" }}>{(group.playerNames || []).join(", ")}</p>
+                      <button onClick={() => copyLink(`${group.name} game link`, getGameLink(group.gameId))} style={primaryButton}>Copy {group.name} game link</button>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => setShowClassroomResults(true)} style={{ ...primaryButton, marginTop: 20 }}>View classroom results</button>
+                <p style={{ marginTop: 18, color: "#8a4c10", background: "#fff5e5", padding: 12, borderRadius: 8 }}>
+                  Save the classroom management link to reopen this page. Anyone with a link can view a classroom's results, so please use first names only. Teacher accounts and private classroom access are coming soon. Teacher Mode is free during our launch period, and a yearly license will apply later.
+                </p>
+              </div>
+            ) : (
+              <section aria-labelledby="classroom-results-title">
+                <button onClick={() => setShowClassroomResults(false)} style={{ ...secondaryButton, marginBottom: 16 }}>← Back to group links</button>
+                <div style={{ ...cardStyle, marginBottom: 16 }}>
+                  <div style={{ color: accent, fontWeight: 800, fontSize: 13, letterSpacing: 1 }}>CLASSROOM SCOREBOARD</div>
+                  <h2 id="classroom-results-title" style={{ marginBottom: 8 }}>{tournament.className} results</h2>
+                  <p style={{ color: "#5b7376", lineHeight: 1.5 }}>
+                    Results update live. Completed games are ranked below; unfinished games are excluded until another player verifies their results.
+                  </p>
+                  {classroomResultsLoading && <p role="status">Loading group results…</p>}
+                  {classroomResultsError && <p role="alert" style={{ color: "#a12626" }}>{classroomResultsError}</p>}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12, margin: "18px 0" }}>
+                    {[
+                      { title: "Leading group — TorahPoly", leaders: topGroupTorahPoly, score: `$${topGroupTorahPoly.score.toLocaleString()}` },
+                      { title: "Leading group — Zchut", leaders: topGroupZchut, score: `${topGroupZchut.score.toLocaleString()} Zchut` },
+                      { title: "Top individual — TorahPoly", leaders: topIndividualTorahPoly, score: `$${topIndividualTorahPoly.score.toLocaleString()}` },
+                      { title: "Top individual — Zchut", leaders: topIndividualZchut, score: `${topIndividualZchut.score.toLocaleString()} Zchut` },
+                    ].map(award => (
+                      <div key={award.title} style={{ padding: 16, borderRadius: 12, background: "#eaf5f3" }}>
+                        <strong>{award.title}</strong>
+                        <div style={{ fontSize: 19, fontWeight: 800, marginTop: 8 }}>{leaderNames(award.leaders)}</div>
+                        {award.leaders.names.length > 0 && <div>{award.score}</div>}
+                      </div>
+                    ))}
+                  </div>
+                  <h3>Group standings</h3>
+                  <p style={{ color: "#5b7376" }}>Click a completed group to see its player-by-player final results.</p>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", minWidth: 680, borderCollapse: "collapse", textAlign: "left" }}>
+                      <thead><tr>{["Group", "Status", "TorahPoly rank", "Combined TorahPoly", "Zchut rank", "Combined Zchut"].map(label => <th key={label} style={{ padding: 10, borderBottom: "2px solid #dce5e7" }}>{label}</th>)}</tr></thead>
+                      <tbody>{rankedGroupStandings.map(group => (
+                        <React.Fragment key={group.gameId}>
+                          <tr>
+                            <td style={{ padding: 10, borderBottom: "1px solid #e8eeee", fontWeight: 700 }}>
+                              {group.completed ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedResultGroupId(expandedResultGroupId === group.gameId ? null : group.gameId)}
+                                  aria-expanded={expandedResultGroupId === group.gameId}
+                                  style={{ border: 0, padding: 0, background: "none", color: accent, font: "inherit", fontWeight: 700, textDecoration: "underline", cursor: "pointer" }}
+                                >{group.name}</button>
+                              ) : group.name}
+                            </td>
+                            <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{group.status}</td>
+                            <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{group.completed ? group.torahPolyRank : "—"}</td>
+                            <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{group.completed ? `$${group.torahPolyTotal.toLocaleString()}` : "—"}</td>
+                            <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{group.completed ? group.zchutRank : "—"}</td>
+                            <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{group.completed ? group.zchutTotal.toLocaleString() : "—"}</td>
+                          </tr>
+                          {expandedResultGroupId === group.gameId && group.completed && (
+                            <tr>
+                              <td colSpan={6} style={{ padding: 14, background: "#f7faf9", borderBottom: "1px solid #e8eeee" }}>
+                                <h4 style={{ margin: "0 0 10px" }}>{group.name} final player results</h4>
+                                <div style={{ overflowX: "auto" }}>
+                                  <table style={{ width: "100%", minWidth: 560, borderCollapse: "collapse", textAlign: "left", background: "#fff" }}>
+                                    <thead><tr>{["Player", "Cash", "Property & buildings", "TorahPoly total", "Zchut"].map(label => <th key={label} style={{ padding: 9, borderBottom: "2px solid #dce5e7" }}>{label}</th>)}</tr></thead>
+                                    <tbody>{rankByScore(group.players, "torahPolyTotal").map((player, index) => (
+                                      <tr key={`${player.name}-${index}`}>
+                                        <td style={{ padding: 9, borderBottom: "1px solid #e8eeee", fontWeight: 700 }}>{player.name}</td>
+                                        <td style={{ padding: 9, borderBottom: "1px solid #e8eeee" }}>${player.cash.toLocaleString()}</td>
+                                        <td style={{ padding: 9, borderBottom: "1px solid #e8eeee" }}>${player.propertyValue.toLocaleString()}</td>
+                                        <td style={{ padding: 9, borderBottom: "1px solid #e8eeee" }}>${player.torahPolyTotal.toLocaleString()}</td>
+                                        <td style={{ padding: 9, borderBottom: "1px solid #e8eeee" }}>{player.zchut.toLocaleString()}</td>
+                                      </tr>
+                                    ))}</tbody>
+                                  </table>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                  <h3>Individual rankings</h3>
+                  {!showAllIndividualResults ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllIndividualResults(true)}
+                      style={secondaryButton}
+                      disabled={completedPlayerScores.length === 0}
+                    >{completedPlayerScores.length === 0 ? "Waiting for a completed game" : "View all individual rankings"}</button>
+                  ) : (
+                    <>
+                      <button type="button" onClick={() => setShowAllIndividualResults(false)} style={secondaryButton}>Hide individual rankings</button>
+                      <div style={{ overflowX: "auto", marginTop: 12 }}>
+                        <table style={{ width: "100%", minWidth: 650, borderCollapse: "collapse", textAlign: "left" }}>
+                          <thead><tr>{["TorahPoly rank", "Player", "Group", "TorahPoly total", "Zchut rank", "Zchut"].map(label => <th key={label} style={{ padding: 10, borderBottom: "2px solid #dce5e7" }}>{label}</th>)}</tr></thead>
+                          <tbody>{rankedIndividualStandings.map((player, index) => (
+                            <tr key={`${player.groupName}-${player.name}-${index}`}>
+                              <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{player.rank}</td>
+                              <td style={{ padding: 10, borderBottom: "1px solid #e8eeee", fontWeight: 700 }}>{player.name}</td>
+                              <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{player.groupName}</td>
+                              <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>${player.torahPolyTotal.toLocaleString()}</td>
+                              <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{player.zchutRank}</td>
+                              <td style={{ padding: 10, borderBottom: "1px solid #e8eeee" }}>{player.zchut.toLocaleString()}</td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </section>
+            )}
+          </section>
+        )}
+      </div>
+    </main>
+  );
+}
+
 function App() {
   // --- BoardEvents state for multiplayer property sync ---
   const [boardEvents, setBoardEvents] = useState(initialBoardEvents);
+  const [showTeacherPreview, setShowTeacherPreview] = useState(() =>
+    new URLSearchParams(window.location.search).has("teacherTournament")
+  );
   // Square 21: Sell your brother event state
   const [pendingSellBrother, setPendingSellBrother] = useState(false);
   const [sellBrotherPlayerIndex, setSellBrotherPlayerIndex] = useState(null);
@@ -3282,7 +4014,7 @@ function App() {
     if (squareIndex === 16) {
       const pay = Math.min(100, players[currentPlayerIndex]?.money || 0);
       if (pay > 0) {
-        setTzedakahAmount(prevAmt => prevAmt + pay);
+        void addToCommunityFunds(pay, 0).catch(err => console.error('Failed to add Tzedakah contribution:', err));
         setPlayers(prev => prev.map((p, idx) => idx === currentPlayerIndex ? { ...p, money: (p.money || 0) - pay, position: 16 } : p));
         alert('Paid $100 to Tzedakah fund!');
       } else {
@@ -3307,6 +4039,44 @@ function App() {
     }
     // Collect Tzedakah (20)
     if (squareIndex === 20) {
+      if (multiplayer.enabled && multiplayer.gameId) {
+        import('firebase/firestore').then(async ({ doc, runTransaction }) => {
+          const gameRef = doc(db, "games", multiplayer.gameId);
+          try {
+            const result = await runTransaction(db, async (transaction) => {
+              const gameSnap = await transaction.get(gameRef);
+              if (!gameSnap.exists()) throw new Error("Game not found.");
+              const gameState = gameSnap.data().gameState || {};
+              const updatedPlayers = Array.isArray(gameState.players) ? [...gameState.players] : [];
+              const player = updatedPlayers[currentPlayerIndex];
+              if (!player) throw new Error("Current player not found.");
+
+              const collectMoney = Number(gameState.tzedakahAmount) || 0;
+              const collectZchut = Number(gameState.zchutFundAmount) || 0;
+              updatedPlayers[currentPlayerIndex] = {
+                ...player,
+                money: (Number(player.money) || 0) + collectMoney,
+                zchutPoints: (Number(player.zchutPoints) || 0) + collectZchut,
+                position: 20,
+              };
+              transaction.update(gameRef, {
+                'gameState.players': updatedPlayers,
+                'gameState.tzedakahAmount': 0,
+                'gameState.zchutFundAmount': 0,
+              });
+              return { collectMoney, collectZchut, players: updatedPlayers };
+            });
+
+            setTzedakahAmount(0);
+            setZchutFundAmount(0);
+            setPlayers(result.players.map((player, index) => ({ ...player, index })));
+            alert(`Collected the Tzedakah fund! $${result.collectMoney} and ${result.collectZchut} zchut have been added to your account.`);
+          } catch (err) {
+            alert(`Could not collect the Tzedakah fund: ${err.message}`);
+          }
+        });
+        return;
+      }
       const collectMoney = tzedakahAmount;
       const collectZchut = zchutFundAmount;
       setTzedakahAmount(0);
@@ -3345,6 +4115,8 @@ function App() {
   const [newPlayerName, setNewPlayerName] = useState("");
   const [newPlayerColor, setNewPlayerColor] = useState("");
   const [gameStarted, setGameStarted] = useState(false);
+  const [gameEnded, setGameEnded] = useState(false);
+  const [endGameRequest, setEndGameRequest] = useState(null);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   // --- Multiplayer state ---
   const [multiplayer, setMultiplayer] = useState({ enabled: false, gameId: null, playerName: null });
@@ -3362,8 +4134,11 @@ function App() {
       getDoc(gameRef).then((snap) => {
         const data = snap.exists() ? snap.data() : null;
         if (data && data.gameState && Array.isArray(data.gameState.players) && data.gameState.players.length > 0) {
-          setPlayers(data.gameState.players.map((p, i) => ({ ...p, index: i })));
+          setPlayers(data.gameState.players.map((p, i) => ({ ...p, isActive: p.isActive !== false, index: i })));
         }
+        if (typeof data?.gameState?.gameStarted === 'boolean') setGameStarted(data.gameState.gameStarted);
+        setGameEnded(data?.gameState?.gameEnded === true);
+        setEndGameRequest(data?.gameState?.endGameRequest || null);
       });
     });
   }, [multiplayer.enabled, multiplayer.gameId]);
@@ -3379,9 +4154,9 @@ function App() {
         if (data && data.gameState) {
           skipNextMultiplayerSyncRef.current = true;
           setPlayers((prev) => {
-            const prevStr = JSON.stringify((prev || []).map(p => ({ name: p.name, position: p.position, money: p.money, zchutPoints: p.zchutPoints, missTurn: p.missTurn, color: p.color })));
-            const newStr = JSON.stringify((data.gameState.players || []).map(p => ({ name: p.name, position: p.position, money: p.money, zchutPoints: p.zchutPoints, missTurn: p.missTurn, color: p.color })));
-            const playersArr = (data.gameState.players || []).map((p, i) => ({ ...p, index: i }));
+            const prevStr = JSON.stringify((prev || []).map(p => ({ name: p.name, position: p.position, money: p.money, zchutPoints: p.zchutPoints, missTurn: p.missTurn, color: p.color, isActive: p.isActive !== false })));
+            const newStr = JSON.stringify((data.gameState.players || []).map(p => ({ name: p.name, position: p.position, money: p.money, zchutPoints: p.zchutPoints, missTurn: p.missTurn, color: p.color, isActive: p.isActive !== false })));
+            const playersArr = (data.gameState.players || []).map((p, i) => ({ ...p, isActive: p.isActive !== false, index: i }));
             if (prevStr !== newStr) {
               return playersArr;
             }
@@ -3400,6 +4175,32 @@ function App() {
           // --- Sync Manna Foods state from Firestore ---
           if ('mannaPayer' in data.gameState) setMannaPayer(data.gameState.mannaPayer);
           if ('mannaAmount' in data.gameState) setMannaAmount(data.gameState.mannaAmount);
+          if (typeof data.gameState.tzedakahAmount === 'number') setTzedakahAmount(data.gameState.tzedakahAmount);
+          if (typeof data.gameState.zchutFundAmount === 'number') setZchutFundAmount(data.gameState.zchutFundAmount);
+          if (typeof data.gameState.gameStarted === 'boolean') setGameStarted(data.gameState.gameStarted);
+          setGameEnded(data.gameState.gameEnded === true);
+          setEndGameRequest(data.gameState.endGameRequest || null);
+          if ('propertyModalPosition' in data.gameState) {
+            const nextPosition = Number.isInteger(data.gameState.propertyModalPosition)
+              ? data.gameState.propertyModalPosition
+              : null;
+            if (nextPosition === null) {
+              if (sharedPropertyModalPositionRef.current !== null) {
+                sharedPropertyModalPositionRef.current = null;
+                setSharedPropertyModalPosition(null);
+                setQaMode(false);
+                setCurrentCard(null);
+              }
+            } else {
+              sharedPropertyModalPositionRef.current = nextPosition;
+              setSharedPropertyModalPosition(nextPosition);
+              const property = data.gameState.boardEvents?.[nextPosition]?.card || initialBoardEvents[nextPosition]?.card;
+              if (property) {
+                setCurrentCard({ ...property, position: nextPosition });
+                setQaMode("property");
+              }
+            }
+          }
         }
       });
     });
@@ -3425,17 +4226,21 @@ function App() {
           money: typeof p.money === 'number' ? p.money : 2000,
           zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 1000,
           missTurn: !!p.missTurn,
-          color: p.color || null
+          color: p.color || null,
+          isActive: p.isActive !== false
         })),
         'gameState.currentPlayerIndex': typeof currentPlayerIndex === 'number' ? currentPlayerIndex : 0,
         'gameState.boardEvents': boardEvents,
         'gameState.mannaPayer': mannaPayer,
-        'gameState.mannaAmount': mannaAmount
+        'gameState.mannaAmount': mannaAmount,
+        'gameState.gameStarted': gameStarted
       });
     });
   }, [players, boardEvents, currentPlayerIndex, multiplayer.enabled, multiplayer.gameId, gameStarted]);
   const [qaMode, setQaMode] = useState(false);
   const [currentCard, setCurrentCard] = useState(null);
+  const [sharedPropertyModalPosition, setSharedPropertyModalPosition] = useState(null);
+  const sharedPropertyModalPositionRef = useRef(null);
   const [boardWidth, setBoardWidth] = useState(Math.min(window.innerWidth * 0.95, referenceSize));
   const [boardPositions, setBoardPositions] = useState(defaultBoardPositions);
   const [diceRolls, setDiceRolls] = useState([]);
@@ -3577,6 +4382,18 @@ function App() {
   // Tzedakah and Zchut fund state
   const [tzedakahAmount, setTzedakahAmount] = useState(0);
   const [zchutFundAmount, setZchutFundAmount] = useState(0);
+  const addToCommunityFunds = async (moneyAmount = 0, zchutAmount = 0) => {
+    if (multiplayer.enabled && multiplayer.gameId) {
+      const { doc, updateDoc, increment } = await import('firebase/firestore');
+      const updates = {};
+      if (moneyAmount) updates['gameState.tzedakahAmount'] = increment(moneyAmount);
+      if (zchutAmount) updates['gameState.zchutFundAmount'] = increment(zchutAmount);
+      await updateDoc(doc(db, "games", multiplayer.gameId), updates);
+      return;
+    }
+    if (moneyAmount) setTzedakahAmount(prev => prev + moneyAmount);
+    if (zchutAmount) setZchutFundAmount(prev => prev + zchutAmount);
+  };
 
   // Expose rescue modal setters for MannaFoodsModal
   useEffect(() => {
@@ -3608,8 +4425,79 @@ function App() {
   };
 
   const startGame = () => {
-    if (players.length < 2) { alert("At least 2 players required."); return; }
+    if (players.filter(player => player.isActive !== false).length < 2) { alert("At least 2 active players required."); return; }
     setGameStarted(true);
+    setGameEnded(false);
+    if (multiplayer.enabled && multiplayer.gameId) {
+      import('firebase/firestore').then(({ doc, updateDoc }) => {
+        updateDoc(doc(db, "games", multiplayer.gameId), {
+          'gameState.gameStarted': true,
+          'gameState.gameEnded': false
+        });
+      });
+    }
+  };
+
+  const endGameAndShowResults = async () => {
+    if (!multiplayer.enabled || !multiplayer.gameId || !multiplayer.playerName) return;
+    try {
+      const { runTransaction } = await import('firebase/firestore');
+      const gameRef = doc(db, "games", multiplayer.gameId);
+      await runTransaction(db, async transaction => {
+        const gameSnap = await transaction.get(gameRef);
+        if (!gameSnap.exists()) throw new Error("Game not found.");
+        const gameState = gameSnap.data().gameState || {};
+        if (gameState.gameEnded === true) throw new Error("This game has already ended.");
+        if (gameState.endGameRequest?.status === 'pending') throw new Error("An end-game request is already awaiting a response.");
+        const activePlayers = (Array.isArray(gameState.players) ? gameState.players : [])
+          .filter(player => player.isActive !== false);
+        if (!activePlayers.some(player => player.name === multiplayer.playerName)) {
+          throw new Error("Only an active player can request to end the game.");
+        }
+        if (activePlayers.length < 2) throw new Error("At least two active players are needed to confirm ending the game.");
+        transaction.update(gameRef, {
+          'gameState.endGameRequest': {
+            requestedBy: multiplayer.playerName,
+            status: 'pending',
+            requestedAt: Date.now(),
+          }
+        });
+      });
+    } catch (err) {
+      alert(`Could not request to end the game: ${err.message}`);
+    }
+  };
+
+  const respondToEndGameRequest = async (approve) => {
+    if (!multiplayer.enabled || !multiplayer.gameId || !multiplayer.playerName) return;
+    try {
+      const { runTransaction } = await import('firebase/firestore');
+      const gameRef = doc(db, "games", multiplayer.gameId);
+      await runTransaction(db, async transaction => {
+        const gameSnap = await transaction.get(gameRef);
+        if (!gameSnap.exists()) throw new Error("Game not found.");
+        const gameState = gameSnap.data().gameState || {};
+        const request = gameState.endGameRequest;
+        if (!request || request.status !== 'pending') throw new Error("This end-game request is no longer pending.");
+        if (request.requestedBy === multiplayer.playerName) throw new Error("The player who requested the end must wait for another player to respond.");
+        const activePlayers = (Array.isArray(gameState.players) ? gameState.players : [])
+          .filter(player => player.isActive !== false);
+        if (!activePlayers.some(player => player.name === multiplayer.playerName)) {
+          throw new Error("Only an active player can respond to this request.");
+        }
+        transaction.update(gameRef, {
+          'gameState.endGameRequest': {
+            ...request,
+            status: approve ? 'approved' : 'declined',
+            respondedBy: multiplayer.playerName,
+            respondedAt: Date.now(),
+          },
+          ...(approve ? { 'gameState.gameEnded': true } : {}),
+        });
+      });
+    } catch (err) {
+      alert(`Could not respond to the end-game request: ${err.message}`);
+    }
   };
 
   const updateCurrentPlayer = (updatedPlayer) => {
@@ -3643,19 +4531,12 @@ function App() {
             money: typeof p.money === 'number' ? p.money : 2000,
             zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 1000,
             missTurn: !!p.missTurn,
-            color: p.color || null
+            color: p.color || null,
+            isActive: p.isActive !== false
           })),
-          'gameState.currentPlayerIndex': currentPlayerIndex
+          'gameState.currentPlayerIndex': currentPlayerIndex,
+          'gameState.propertyModalPosition': boardEvents[newPosition]?.type === "property" ? newPosition : null
         });
-        // --- Trigger CardModal if landed on property ---
-        const boardEvents = require('./data/boardEvents').boardEvents;
-        const event = boardEvents[newPosition];
-        if (event && event.type === "property") {
-          setTimeout(() => {
-            setQaMode("property");
-            setCurrentCard(event.card);
-          }, 350); // Delay to allow state sync
-        }
         // --- Trigger special square logic automatically ---
         setTimeout(() => handleSpecialSquare(newPosition), 350);
       });
@@ -3706,7 +4587,7 @@ function App() {
       idx === currentPlayerIndex ? { ...p, missTurn: true } : p
     ));
     setShowYeshivaModal(false);
-    setCurrentPlayerIndex(prev => (players.length > 0 ? (prev + 1) % players.length : 0));
+    setCurrentPlayerIndex(getNextActivePlayerIndex(players, currentPlayerIndex));
   };
 
   const handleYeshivaLeave = () => {
@@ -3723,7 +4604,7 @@ function App() {
       idx === currentPlayerIndex ? { ...p, missTurn: false } : p
     ));
     setShowYeshivaModal(false);
-    setCurrentPlayerIndex(prev => (players.length > 0 ? (prev + 1) % players.length : 0));
+    setCurrentPlayerIndex(getNextActivePlayerIndex(players, currentPlayerIndex));
   };
 
   const rollDice = (val) => {
@@ -3747,7 +4628,7 @@ function App() {
       updatedPlayers[currentPlayerIndex].missTurn = false;
       setPlayers(updatedPlayers);
       alert(`${players[currentPlayerIndex].name} misses this turn!`);
-      setCurrentPlayerIndex(prev => (players.length > 0 ? (prev + 1) % players.length : 0));
+      setCurrentPlayerIndex(getNextActivePlayerIndex(players, currentPlayerIndex));
       return;
     }
     // Special event: Haman's gallows reward
@@ -3775,8 +4656,7 @@ function App() {
             }
           : p
       ));
-      setTzedakahAmount(prev => prev + penalty);
-      setZchutFundAmount(prev => prev + penalty);
+      void addToCommunityFunds(penalty, penalty).catch(err => console.error('Failed to add atonement contribution:', err));
       alert(`${players[currentPlayerIndex].name} pays $${penalty} and ${penalty} Zchut to the Tzedakah fund for atonement.`);
       setPendingSellBrother(false);
       setSellBrotherPlayerIndex(null);
@@ -3812,9 +4692,10 @@ function App() {
             zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 1000,
             missTurn: !!p.missTurn,
             color: p.color || 'black', // Preserve color, fallback to black if missing
+            isActive: p.isActive !== false,
             // Add any other custom fields you want to preserve here
           })),
-          'gameState.currentPlayerIndex': (players.length > 0 ? (currentPlayerIndex + 1) % players.length : 0)
+          'gameState.currentPlayerIndex': getNextActivePlayerIndex(updatedPlayers, currentPlayerIndex)
         });
       });
       return;
@@ -3882,22 +4763,93 @@ function App() {
             <span style={styles.rotateIcon}>⟳</span>
             <span style={styles.rulesLabel}>Rotate Board</span>
           </button>
+          <button
+            style={styles.rulesMenuItem}
+            onClick={() => {
+              setShowTeacherPreview(true);
+              setShowRulesMenu(false);
+            }}
+            aria-label="Open Teacher Mode Preview"
+            title="For Teachers"
+          >
+            <span aria-hidden="true">🎓</span>
+            <span style={styles.rulesLabel}>For Teachers</span>
+          </button>
         </div>
       )}
     </div>
   );
 
 
+  const handleLeaveGame = async () => {
+    const playerName = multiplayer.playerName;
+    if (!multiplayer.enabled || !multiplayer.gameId || !playerName) return;
+    if (!window.confirm(`Leave the game as ${playerName}? Your score and properties will be kept. Rejoin with this exact name.`)) return;
+
+    try {
+      const { doc, runTransaction } = await import('firebase/firestore');
+      const gameRef = doc(db, "games", multiplayer.gameId);
+      let updatedPlayers = [];
+      let nextPlayerIndex = currentPlayerIndex;
+
+      await runTransaction(db, async (transaction) => {
+        const gameSnap = await transaction.get(gameRef);
+        if (!gameSnap.exists()) throw new Error("Game not found.");
+        const gameState = gameSnap.data().gameState || {};
+        const storedPlayers = Array.isArray(gameState.players) ? gameState.players : [];
+        const leavingIndex = storedPlayers.findIndex(player => player.name === playerName);
+        if (leavingIndex < 0) throw new Error("Player not found in this game.");
+
+        updatedPlayers = storedPlayers.map((player, index) =>
+          index === leavingIndex ? { ...player, isActive: false } : player
+        );
+        const storedCurrentIndex = Number.isInteger(gameState.currentPlayerIndex)
+          ? gameState.currentPlayerIndex
+          : currentPlayerIndex;
+        const currentIndexUnavailable = updatedPlayers[storedCurrentIndex]?.isActive === false;
+        nextPlayerIndex = storedCurrentIndex === leavingIndex || currentIndexUnavailable
+          ? getNextActivePlayerIndex(updatedPlayers, storedCurrentIndex)
+          : storedCurrentIndex;
+
+        const updates = {
+          'gameState.players': updatedPlayers,
+          'gameState.currentPlayerIndex': nextPlayerIndex,
+        };
+        if (storedCurrentIndex === leavingIndex) {
+          updates['gameState.propertyModalPosition'] = null;
+        }
+        transaction.update(gameRef, updates);
+      });
+
+      setPlayers(updatedPlayers.map((player, index) => ({ ...player, index })));
+      setCurrentPlayerIndex(nextPlayerIndex);
+      setQaMode(false);
+      setCurrentCard(null);
+      setMultiplayer({ enabled: false, gameId: null, playerName: null });
+    } catch (err) {
+      alert(`Could not leave the game: ${err.message}`);
+    }
+  };
+
   // --- Multiplayer Entry UI ---
   if (!multiplayer.enabled) {
     return (
       <>
-        {rulesLauncher}
-        <MultiplayerEntry
-          onJoin={(gameId, playerName) => {
-            setMultiplayer({ enabled: true, gameId, playerName });
-          }}
-        />
+        {showTeacherPreview ? (
+          <TeacherModePreview onBack={() => {
+            window.history.replaceState({}, "", window.location.pathname);
+            setShowTeacherPreview(false);
+          }} />
+        ) : (
+          <>
+            {rulesLauncher}
+            <MultiplayerEntry
+              onJoin={(gameId, playerName) => {
+                setMultiplayer({ enabled: true, gameId, playerName });
+              }}
+            />
+          </>
+        )}
         <RulesModal open={showRulesModal} onClose={() => setShowRulesModal(false)} />
       </>
     );
@@ -3905,12 +4857,178 @@ function App() {
 
   // In multiplayer mode, always use Firestore-synced players for lobby and start logic
   const lobbyPlayers = multiplayer.enabled ? players : players;
-  const canStartGame = lobbyPlayers.length >= 2;
+  const activePlayers = lobbyPlayers.filter(player => player.isActive !== false);
+  const canStartGame = activePlayers.length >= 2;
+  const playerResults = players.map((player, playerIndex) => {
+    const propertyValue = Object.values(boardEvents || {}).reduce((total, event) => {
+      const property = event?.card;
+      if (event?.type !== "property" || property?.ownerIndex !== playerIndex) return total;
+      const price = typeof property.price === 'number' ? property.price : 0;
+      const houseCost = typeof property.buildCost?.house === 'number' ? property.buildCost.house : 0;
+      const hotelCost = typeof property.buildCost?.hotel === 'number' ? property.buildCost.hotel : 0;
+      const buildingValue = property.hotel
+        ? (4 * houseCost) + hotelCost
+        : (Math.max(0, Number(property.houses) || 0) * houseCost);
+      return total + price + buildingValue;
+    }, 0);
+    const cash = typeof player.money === 'number'
+      ? player.money
+      : (typeof player.money?.money === 'number' ? player.money.money : 0);
+    const zchut = typeof player.zchutPoints === 'number' ? player.zchutPoints : 0;
+    return {
+      ...player,
+      cash,
+      propertyValue,
+      torahPolyTotal: cash + propertyValue,
+      zchut,
+    };
+  });
+  const getScoreLeaders = (scoreKey) => {
+    if (playerResults.length === 0) return { score: 0, names: [] };
+    const highestScore = Math.max(...playerResults.map(player => player[scoreKey]));
+    return {
+      score: highestScore,
+      names: playerResults
+        .filter(player => player[scoreKey] === highestScore)
+        .map(player => player.name)
+    };
+  };
+
+  if (gameEnded) {
+    const torahPolyLeaders = getScoreLeaders("torahPolyTotal");
+    const zchutLeaders = getScoreLeaders("zchut");
+    const leaderLabel = names => names.length > 1
+      ? `Tie: ${names.join(", ")}`
+      : names[0] || "No players";
+
+    return (
+      <div style={{ ...styles.container, maxWidth: 700, margin: '40px auto', padding: 24 }}>
+        {rulesLauncher}
+        <h1>TORAHPOLY</h1>
+        <h2>Final Game Results</h2>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 16, margin: '24px 0' }}>
+          <div style={{ border: '2px solid #007bff', borderRadius: 12, padding: 18, minWidth: 220 }}>
+            <h3>TorahPoly Total Leader</h3>
+            <p style={{ fontSize: 20, fontWeight: 700 }}>{leaderLabel(torahPolyLeaders.names)}</p>
+            <p>${torahPolyLeaders.score.toLocaleString()} including properties</p>
+          </div>
+          <div style={{ border: '2px solid #008c95', borderRadius: 12, padding: 18, minWidth: 220 }}>
+            <h3>Zchut Leader</h3>
+            <p style={{ fontSize: 20, fontWeight: 700 }}>{leaderLabel(zchutLeaders.names)}</p>
+            <p>{zchutLeaders.score.toLocaleString()} Zchut</p>
+          </div>
+        </div>
+        <h3>Final Standings</h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+            <thead>
+              <tr>
+                <th style={{ padding: 10, borderBottom: '2px solid #ccc' }}>Player</th>
+                <th style={{ padding: 10, borderBottom: '2px solid #ccc' }}>Cash</th>
+                <th style={{ padding: 10, borderBottom: '2px solid #ccc' }}>Property &amp; Buildings</th>
+                <th style={{ padding: 10, borderBottom: '2px solid #ccc' }}>TorahPoly Total</th>
+                <th style={{ padding: 10, borderBottom: '2px solid #ccc' }}>Zchut</th>
+              </tr>
+            </thead>
+            <tbody>
+              {playerResults.map((player, index) => (
+                <tr key={`${player.name}-${index}`}>
+                  <td style={{ padding: 10, borderBottom: '1px solid #ddd', color: player.color || 'inherit' }}>{player.name}</td>
+                  <td style={{ padding: 10, borderBottom: '1px solid #ddd' }}>${player.cash.toLocaleString()}</td>
+                  <td style={{ padding: 10, borderBottom: '1px solid #ddd' }}>${player.propertyValue.toLocaleString()}</td>
+                  <td style={{ padding: 10, borderBottom: '1px solid #ddd' }}>${player.torahPolyTotal.toLocaleString()}</td>
+                  <td style={{ padding: 10, borderBottom: '1px solid #ddd' }}>{player.zchut.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>
       {rulesLauncher}
       <h1>TORAHPOLY</h1>
+      {endGameRequest?.status === 'pending' &&
+        endGameRequest.requestedBy !== multiplayer.playerName &&
+        players.some(player => player.name === multiplayer.playerName && player.isActive !== false) && (
+          <div style={modalStyles.overlay}>
+            <div style={modalStyles.modal}>
+              <h2>End Game Request</h2>
+              <p>{endGameRequest.requestedBy} wants to end the game and show the final results.</p>
+              <p>Your approval is required. Do you want to end the game now?</p>
+              <button style={modalStyles.button} onClick={() => respondToEndGameRequest(true)}>Approve &amp; Show Results</button>
+              <button style={modalStyles.button} onClick={() => respondToEndGameRequest(false)}>Keep Playing</button>
+            </div>
+          </div>
+        )}
+      {(() => {
+        const canLeave = players.some(player => player.name === multiplayer.playerName && player.isActive !== false);
+        if (gameStarted) {
+          return (
+            <div style={{ position: 'fixed', top: 60, right: 12, zIndex: 1400, display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6, maxWidth: 190 }}>
+              {canLeave && (
+                <>
+                  <button
+                    onClick={endGameAndShowResults}
+                    style={{ padding: '6px 12px', fontSize: 13, borderRadius: 8, cursor: 'pointer', backgroundColor: '#515a6b', border: 'none', color: '#fff' }}
+                    disabled={endGameRequest?.status === 'pending'}
+                  >
+                    {endGameRequest?.status === 'pending' && endGameRequest.requestedBy === multiplayer.playerName
+                      ? 'Waiting for Approval...'
+                      : 'End Game & Show Results'}
+                  </button>
+                  <button
+                    onClick={handleLeaveGame}
+                    style={{ padding: '6px 12px', fontSize: 13, borderRadius: 8, cursor: 'pointer', backgroundColor: '#ff0087', border: 'none', color: '#fff' }}
+                  >
+                    Leave Game
+                  </button>
+                </>
+              )}
+              {endGameRequest?.status === 'declined' && endGameRequest.requestedBy === multiplayer.playerName && (
+                <p style={{ textAlign: 'right', fontSize: 12, margin: 0 }}>{endGameRequest.respondedBy} chose to keep playing.</p>
+              )}
+            </div>
+          );
+        }
+        const sideButtonStyle = {
+          padding: '6px 12px',
+          fontSize: 13,
+          borderRadius: 8,
+          cursor: 'pointer',
+          backgroundColor: '#008c95',
+          border: 'none',
+          color: '#fff',
+        };
+        return (
+          <div style={{ position: 'fixed', top: 60, right: 12, zIndex: 1400, display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+            {multiplayer.gameId && (
+              <button
+                onClick={async () => {
+                  const link = `${window.location.origin}/?game=${encodeURIComponent(multiplayer.gameId)}`;
+                  try {
+                    await navigator.clipboard.writeText(link);
+                    alert(`Invite link copied! Send it to a friend:\n${link}`);
+                  } catch (err) {
+                    window.prompt("Copy this invite link and send it to a friend:", link);
+                  }
+                }}
+                style={sideButtonStyle}
+              >
+                Copy invite link
+              </button>
+            )}
+            {canLeave && (
+              <button onClick={handleLeaveGame} style={{ ...sideButtonStyle, backgroundColor: '#ff0087' }}>
+                Leave Game
+              </button>
+            )}
+          </div>
+        );
+      })()}
       {/* ...existing code... */}
       <YeshivaModal
         open={showYeshivaModal}
@@ -3966,11 +5084,11 @@ function App() {
               </select>
             </div>
           )}
-          <h2>Joined Players ({lobbyPlayers.length}/{maxPlayers})</h2>
+          <h2>Joined Players ({activePlayers.length}/{maxPlayers})</h2>
           <ul>
             {lobbyPlayers.map((p, i) => (
               <li key={i} style={{ color: p.color, fontWeight: i === currentPlayerIndex ? "bold" : "normal" }}>
-                {p.name} ({p.color})
+                {p.name} ({p.color}) {p.isActive === false && "(Away)"}
               </li>
             ))}
           </ul>
@@ -3983,7 +5101,7 @@ function App() {
             <ul>
               {players.map((p, i) => (
                 <li key={i} style={{ color: p.color, fontWeight: i === currentPlayerIndex ? "bold" : "normal" }}>
-                  {p.name} - Position: {p.position}, Zchut: {p.zchutPoints}, Money: ${typeof p.money === 'number' ? p.money : (p.money && p.money.money ? p.money.money : 0)} {i === currentPlayerIndex && "(Your Turn)"} {p.missTurn && "(Miss next turn)"}
+                  {p.name} - Position: {p.position}, Zchut: {p.zchutPoints}, Money: ${typeof p.money === 'number' ? p.money : (p.money && p.money.money ? p.money.money : 0)} {p.isActive === false && "(Away)"} {i === currentPlayerIndex && "(Your Turn)"} {p.missTurn && "(Miss next turn)"}
                   <button onClick={() => setShowPanel(i)} style={{ marginLeft: 10 }}>View Properties</button>
                 </li>
               ))}
@@ -3994,6 +5112,7 @@ function App() {
           <div style={{ position: "relative", display: "inline-block", marginBottom: 20, transform: `rotate(${boardRotationDeg}deg)`, transformOrigin: "center center", transition: "transform 220ms ease" }}>
             <img src={boardImage} alt="Game Board" style={{ width: boardWidth, maxWidth: "95vw", height: "auto", border: "2px solid #333", borderRadius: 12, display: "block" }} />
             {players.map((player, idx) => {
+              if (player.isActive === false) return null;
               const pos = boardPositions[player.position % boardPositions.length];
               const left = Math.round(pos.x * scale - 12);
               const top = Math.round(pos.y * scale - 12);
@@ -4207,7 +5326,24 @@ function App() {
           boardEvents={boardEvents}
           setBoardEvents={setBoardEvents}
           canControlPropertyActions={!multiplayer.enabled || multiplayer.playerName === players[currentPlayerIndex]?.name}
-          onClose={() => setQaMode(false)}
+          canClosePropertyModal={
+            !multiplayer.enabled ||
+            sharedPropertyModalPosition !== currentCard.position ||
+            multiplayer.playerName === players[currentPlayerIndex]?.name
+          }
+          onClose={async () => {
+            setQaMode(false);
+            if (
+              multiplayer.enabled &&
+              multiplayer.gameId &&
+              sharedPropertyModalPosition === currentCard.position &&
+              multiplayer.playerName === players[currentPlayerIndex]?.name
+            ) {
+              const { doc, updateDoc } = await import('firebase/firestore');
+              const gameRef = doc(db, "games", multiplayer.gameId);
+              await updateDoc(gameRef, { 'gameState.propertyModalPosition': null });
+            }
+          }}
           onRescue={(player, rent) => {
             setRescueInfo({ player, rent });
             setShowRescueModal(true);
@@ -4297,7 +5433,7 @@ function App() {
               return p;
             });
             setPlayers(updatedPlayers);
-            setTzedakahAmount(prev => prev + (mannaAmount || 0));
+            void addToCommunityFunds(mannaAmount || 0, 0).catch(err => console.error('Failed to add Manna Foods contribution:', err));
             // Do NOT change ownership unless trade button is used
             // setMannaPayer(currentPlayerIndex); <-- REMOVE this line
             setMannaAmount(mannaAmount);
@@ -4433,7 +5569,8 @@ function App() {
                     money: typeof p.money === 'number' ? p.money : (p.money && typeof p.money.money === 'number' ? p.money.money : 0),
                     zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 0,
                     missTurn: !!p.missTurn,
-                    color: p.color || null
+                    color: p.color || null,
+                    isActive: p.isActive !== false
                   }))
                 });
               }
@@ -4461,7 +5598,8 @@ function App() {
                     money: typeof p.money === 'number' ? p.money : (p.money && typeof p.money.money === 'number' ? p.money.money : 0),
                     zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 0,
                     missTurn: !!p.missTurn,
-                    color: p.color || null
+                    color: p.color || null,
+                    isActive: p.isActive !== false
                   }))
                 });
               }
@@ -4492,15 +5630,16 @@ function App() {
                   money: typeof p.money === 'number' ? p.money : (p.money && typeof p.money.money === 'number' ? p.money.money : 0),
                   zchutPoints: typeof p.zchutPoints === 'number' ? p.zchutPoints : 0,
                   missTurn: !!p.missTurn,
-                  color: p.color || null
+                  color: p.color || null,
+                  isActive: p.isActive !== false
                 }))
               });
             }
             if (card.target === "tzedakah") {
               if (card.penaltyType === "zchut") {
-                setZchutFundAmount((prev) => prev + card.penalty);
+                await addToCommunityFunds(0, card.penalty);
               } else {
-                setTzedakahAmount((prev) => prev + card.penalty);
+                await addToCommunityFunds(card.penalty, 0);
               }
             }
             alert(`${players[currentPlayerIndex].name} paid ${card.penaltyType === "zchut" ? card.penalty + ' Zchut' : '$' + card.penalty} as Mazal penalty!`);
@@ -4574,6 +5713,3 @@ const modalStyles = {
 };
 
 export default App;
-
-
-
